@@ -1,0 +1,145 @@
+package approval
+
+import "regexp"
+
+// Pattern holds a compiled dangerous-command regex with its key and description.
+type Pattern struct {
+	Regex       *regexp.Regexp
+	Key         string
+	Description string
+}
+
+func mustCompile(pattern string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` + pattern)
+}
+
+// DangerousPatterns is Level 1: single-confirm. All 69 entries ported from
+// DANGEROUS_PATTERNS in pan-desktop/resources/overlays/tools/approval.py.
+var DangerousPatterns = []Pattern{
+	// ---- Linux / cross-platform entries (upstream Hermes) ----
+	{mustCompile(`\brm\s+(-[^\s]*\s+)*/`), "delete in root path", "delete in root path"},
+	{mustCompile(`\brm\s+-[^\s]*r`), "recursive delete", "recursive delete"},
+	{mustCompile(`\brm\s+--recursive\b`), "recursive delete (long flag)", "recursive delete (long flag)"},
+	{mustCompile(`\bchmod\s+(-[^\s]*\s+)*(777|666|o\+[rwx]*w|a\+[rwx]*w)\b`), "world/other-writable permissions", "world/other-writable permissions"},
+	{mustCompile(`\bchmod\s+--recursive\b.*(777|666|o\+[rwx]*w|a\+[rwx]*w)`), "recursive world/other-writable (long flag)", "recursive world/other-writable (long flag)"},
+	{mustCompile(`\bchown\s+(-[^\s]*)?R\s+root`), "recursive chown to root", "recursive chown to root"},
+	{mustCompile(`\bchown\s+--recursive\b.*root`), "recursive chown to root (long flag)", "recursive chown to root (long flag)"},
+	{mustCompile(`\bmkfs\b`), "format filesystem", "format filesystem"},
+	{mustCompile(`\bdd\s+.*if=`), "disk copy", "disk copy"},
+	{mustCompile(`>\s*/dev/sd`), "write to block device", "write to block device"},
+	{mustCompile(`\bDROP\s+(TABLE|DATABASE)\b`), "SQL DROP", "SQL DROP"},
+	{mustCompile(`\bDELETE\s+FROM\b(?!.*\bWHERE\b)`), "SQL DELETE without WHERE", "SQL DELETE without WHERE"},
+	{mustCompile(`\bTRUNCATE\s+(TABLE)?\s*\w`), "SQL TRUNCATE", "SQL TRUNCATE"},
+	{mustCompile(`>\s*/etc/`), "overwrite system config", "overwrite system config"},
+	{mustCompile(`\bsystemctl\s+(stop|disable|mask)\b`), "stop/disable system service", "stop/disable system service"},
+	{mustCompile(`\bkill\s+-9\s+-1\b`), "kill all processes", "kill all processes"},
+	{mustCompile(`\bpkill\s+-9\b`), "force kill processes", "force kill processes"},
+	{mustCompile(`:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:`), "fork bomb", "fork bomb"},
+	{mustCompile(`\b(bash|sh|zsh|ksh)\s+-[^\s]*c(\s+|$)`), "shell command via -c/-lc flag", "shell command via -c/-lc flag"},
+	{mustCompile(`\b(python[23]?|perl|ruby|node)\s+-[ec]\s+`), "script execution via -e/-c flag", "script execution via -e/-c flag"},
+	{mustCompile(`\b(curl|wget)\b.*\|\s*(ba)?sh\b`), "pipe remote content to shell", "pipe remote content to shell"},
+	{mustCompile(`\b(bash|sh|zsh|ksh)\s+<\s*<?\s*\(\s*(curl|wget)\b`), "execute remote script via process substitution", "execute remote script via process substitution"},
+	// tee into sensitive paths
+	{mustCompile(`\btee\b.*["']?(?:/etc/|/dev/sd|(?:~|\$home|\$\{home\})/\.ssh(?:/|$)|(?:~\/\.hermes/|(?:\$home|\$\{home\})/\.hermes/|(?:\$hermes_home|\$\{hermes_home\})/)\.env\b)`), "overwrite system file via tee", "overwrite system file via tee"},
+	// redirection into sensitive paths
+	{mustCompile(`>>?\s*["']?(?:/etc/|/dev/sd|(?:~|\$home|\$\{home\})/\.ssh(?:/|$)|(?:~\/\.hermes/|(?:\$home|\$\{home\})/\.hermes/|(?:\$hermes_home|\$\{hermes_home\})/)\.env\b)`), "overwrite system file via redirection", "overwrite system file via redirection"},
+	{mustCompile(`\bxargs\s+.*\brm\b`), "xargs with rm", "xargs with rm"},
+	{mustCompile(`\bfind\b.*-exec\s+(/\S*/)?rm\b`), "find -exec rm", "find -exec rm"},
+	{mustCompile(`\bfind\b.*-delete\b`), "find -delete", "find -delete"},
+	{mustCompile(`gateway\s+run\b.*(&\s*$|&\s*;|\bdisown\b|\bsetsid\b)`), "start gateway outside systemd (use 'systemctl --user restart hermes-gateway')", "start gateway outside systemd (use 'systemctl --user restart hermes-gateway')"},
+	{mustCompile(`\bnohup\b.*gateway\s+run\b`), "start gateway outside systemd (use 'systemctl --user restart hermes-gateway')", "start gateway outside systemd (use 'systemctl --user restart hermes-gateway')"},
+	{mustCompile(`\b(pkill|killall)\b.*\b(hermes|gateway|cli\.py)\b`), "kill hermes/gateway process (self-termination)", "kill hermes/gateway process (self-termination)"},
+	{mustCompile(`\bkill\b.*\$\(\s*pgrep\b`), "kill process via pgrep expansion (self-termination)", "kill process via pgrep expansion (self-termination)"},
+	{mustCompile(`\bkill\b.*` + "`" + `\s*pgrep\b`), "kill process via backtick pgrep expansion (self-termination)", "kill process via backtick pgrep expansion (self-termination)"},
+	{mustCompile(`\b(cp|mv|install)\b.*\s/etc/`), "copy/move file into /etc/", "copy/move file into /etc/"},
+	{mustCompile(`\bsed\s+-[^\s]*i.*\s/etc/`), "in-place edit of system config", "in-place edit of system config"},
+	{mustCompile(`\bsed\s+--in-place\b.*\s/etc/`), "in-place edit of system config (long flag)", "in-place edit of system config (long flag)"},
+	{mustCompile(`\b(python[23]?|perl|ruby|node)\s+<<`), "script execution via heredoc", "script execution via heredoc"},
+	{mustCompile(`\bgit\s+reset\s+--hard\b`), "git reset --hard (destroys uncommitted changes)", "git reset --hard (destroys uncommitted changes)"},
+	{mustCompile(`\bgit\s+push\b.*--force\b`), "git force push (rewrites remote history)", "git force push (rewrites remote history)"},
+	{mustCompile(`\bgit\s+push\b.*-f\b`), "git force push short flag (rewrites remote history)", "git force push short flag (rewrites remote history)"},
+	{mustCompile(`\bgit\s+clean\s+-[^\s]*f`), "git clean with force (deletes untracked files)", "git clean with force (deletes untracked files)"},
+	{mustCompile(`\bgit\s+branch\s+-D\b`), "git branch force delete", "git branch force delete"},
+	{mustCompile(`\bchmod\s+\+x\b.*[;&|]+\s*\./`), "chmod +x followed by immediate execution", "chmod +x followed by immediate execution"},
+
+	// ---- Pan Desktop — Windows (Level 1: single confirm) ----
+	{mustCompile(`\bdel\b[^\n]*\s/s\b`), "Windows recursive delete (del /s)", "Windows recursive delete (del /s)"},
+	{mustCompile(`\b(rmdir|rd)\b[^\n]*\s/s\b`), "Windows recursive directory remove (rmdir /s)", "Windows recursive directory remove (rmdir /s)"},
+	{mustCompile(`\breg\s+add\s+("?hklm\\|hkey_local_machine\\)`), "modify HKLM registry", "modify HKLM registry"},
+	{mustCompile(`\breg\s+add\s+("?hkcu\\|hkey_current_user\\)`), "modify HKCU registry", "modify HKCU registry"},
+	{mustCompile(`\bschtasks\s+/create\b`), "scheduled task creation (persistence)", "scheduled task creation (persistence)"},
+	{mustCompile(`\brunas\s+/user:`), "runas privilege escalation", "runas privilege escalation"},
+	{mustCompile(`\bstart-process\b[^\n]*-verb\s+runas\b`), "PowerShell privilege escalation (Start-Process -Verb RunAs)", "PowerShell privilege escalation (Start-Process -Verb RunAs)"},
+	{mustCompile(`\bicacls\b[^\n]*\/grant(?::r)?\s+(everyone|users|authenticated\s+users):f\b`), "icacls grant Full to Everyone/Users", "icacls grant Full to Everyone/Users"},
+	{mustCompile(`\btakeown\s+/f\b`), "takeown /f (file ownership seizure)", "takeown /f (file ownership seizure)"},
+	{mustCompile(`\battrib\s+[^\n]*(-r\b|-s\b|-h\b)`), "attrib remove read-only/system/hidden", "attrib remove read-only/system/hidden"},
+	{mustCompile(`\bwmic\s+process\s+call\s+create\b`), "WMI process create (code execution)", "WMI process create (code execution)"},
+	{mustCompile(`\binvoke-expression\b`), "PowerShell Invoke-Expression (eval)", "PowerShell Invoke-Expression (eval)"},
+	{mustCompile(`\biex\s*\(`), "PowerShell iex( (eval shorthand)", "PowerShell iex( (eval shorthand)"},
+	{mustCompile(`\b(iex|invoke-expression)\b[^\n]*\(\s*new-object\s+[^\n]*net\.webclient\b`), "PowerShell download-and-execute (IEX New-Object Net.WebClient)", "PowerShell download-and-execute (IEX New-Object Net.WebClient)"},
+	{mustCompile(`\bdownloadstring\s*\(\s*['"]https?://`), "PowerShell DownloadString (remote content fetch)", "PowerShell DownloadString (remote content fetch)"},
+	{mustCompile(`\bset-executionpolicy\s+(unrestricted|bypass)\b`), "disable PowerShell execution policy", "disable PowerShell execution policy"},
+	{mustCompile(`\bnetsh\s+advfirewall\s+set\b`), "Windows firewall modification (netsh advfirewall)", "Windows firewall modification (netsh advfirewall)"},
+	{mustCompile(`\bnetsh\s+firewall\s+set\b`), "Windows firewall modification (legacy netsh firewall)", "Windows firewall modification (legacy netsh firewall)"},
+	{mustCompile(`\bsc(?:\.exe)?\s+delete\b`), "delete Windows service (sc delete)", "delete Windows service (sc delete)"},
+	{mustCompile(`\bsc(?:\.exe)?\s+stop\b`), "stop Windows service (sc stop)", "stop Windows service (sc stop)"},
+	{mustCompile(`\bcertutil\b[^\n]*-urlcache\b[^\n]*\bhttps?://`), "certutil LOLBIN download (-urlcache)", "certutil LOLBIN download (-urlcache)"},
+	{mustCompile(`\bcertutil\b[^\n]*-decode\b`), "certutil LOLBIN decode", "certutil LOLBIN decode"},
+	{mustCompile(`\bbitsadmin\s+/transfer\b`), "bitsadmin LOLBIN download (/transfer)", "bitsadmin LOLBIN download (/transfer)"},
+	{mustCompile(`\bmshta\s+https?://`), "mshta LOLBIN remote script execution", "mshta LOLBIN remote script execution"},
+	{mustCompile(`\brundll32(?:\.exe)?\s+\S+\.dll,`), "rundll32 DLL export execution", "rundll32 DLL export execution"},
+	{mustCompile(`\bregsvr32\b[^\n]*/i:https?://`), "regsvr32 squiblydoo (/i:http)", "regsvr32 squiblydoo (/i:http)"},
+	{mustCompile(`\bcurl(?:\.exe)?\b[^\n]*\|\s*(cmd|powershell|pwsh)\b`), "curl piped to cmd/powershell", "curl piped to cmd/powershell"},
+	{mustCompile(`\bcurl(?:\.exe)?\b[^\n]*>\s*['"]?[^\s'"|&;]+\.(exe|bat|cmd|ps1|vbs|hta|msi|scr|dll)\b`), "curl redirected to executable file", "curl redirected to executable file"},
+	{mustCompile(`\bcurl(?:\.exe)?\b[^\n]*\s(?:-o|--output)\s+['"]?[^\s'"|&;]+\.(exe|bat|cmd|ps1|vbs|hta|msi|scr|dll)\b`), "curl -o to executable file", "curl -o to executable file"},
+	{mustCompile(`\b(invoke-webrequest|iwr)\b[^\n]*-outfile\s+['"]?[^\s'"|&;]+\.(exe|bat|cmd|ps1|vbs|hta|msi|scr|dll)\b`), "Invoke-WebRequest to executable file", "Invoke-WebRequest to executable file"},
+	{mustCompile(`\bcompress-archive\b[^\n]*(\\\.ssh\b|\\\.hermes\b|\\appdata\\|\\sysvol\b|ntds\.dit|sam\b)`), "Compress-Archive of sensitive path (exfil staging)", "Compress-Archive of sensitive path (exfil staging)"},
+	{mustCompile(`\bexport-pfxcertificate\b`), "Export-PfxCertificate (private key export)", "Export-PfxCertificate (private key export)"},
+	{mustCompile(`\bcertutil\b[^\n]*-exportpfx\b`), "certutil -exportPFX (private key export)", "certutil -exportPFX (private key export)"},
+}
+
+// CatastrophicPatterns is Level 2: double-confirm with exact phrase. All 40
+// entries ported from CATASTROPHIC_PATTERNS in
+// pan-desktop/resources/overlays/tools/approval.py.
+var CatastrophicPatterns = []Pattern{
+	// Volume Shadow Copy deletion (ransomware primitive)
+	{mustCompile(`\bvssadmin\s+delete\s+shadows\b`), "delete Volume Shadow Copies (ransomware primitive)", "delete Volume Shadow Copies (ransomware primitive)"},
+	{mustCompile(`\bwmic\s+shadowcopy\s+delete\b`), "delete Volume Shadow Copies via wmic", "delete Volume Shadow Copies via wmic"},
+	{mustCompile(`\bget-wmiobject\b[^\n]*win32_shadowcopy\b[^\n]*\.delete\(\)`), "delete Volume Shadow Copies via Get-WmiObject", "delete Volume Shadow Copies via Get-WmiObject"},
+	// Disk format
+	{mustCompile(`\bformat\s+[a-z]:(?:\s|$|/)`), "format disk", "format disk"},
+	// Mass Windows delete against drive root
+	{mustCompile(`\bdel\b[^\n]*\s/s\b[^\n]*\s/q\b[^\n]*\s[a-z]:\\`), "del /s /q against drive root", "del /s /q against drive root"},
+	{mustCompile(`\bdel\b[^\n]*\s/q\b[^\n]*\s/s\b[^\n]*\s[a-z]:\\`), "del /q /s against drive root", "del /q /s against drive root"},
+	{mustCompile(`\b(rmdir|rd)\b[^\n]*\s/s\b[^\n]*\s/q\b[^\n]*\s[a-z]:\\`), "rmdir /s /q against drive root", "rmdir /s /q against drive root"},
+	{mustCompile(`\b(rmdir|rd)\b[^\n]*\s/q\b[^\n]*\s/s\b[^\n]*\s[a-z]:\\`), "rmdir /q /s against drive root", "rmdir /q /s against drive root"},
+	// Windows Defender tampering
+	{mustCompile(`\bset-mppreference\b[^\n]*-disable\w+`), "disable Windows Defender protection (Set-MpPreference -Disable*)", "disable Windows Defender protection (Set-MpPreference -Disable*)"},
+	{mustCompile(`\badd-mppreference\b[^\n]*-exclusion(path|process|extension)\b`), "Defender exclusion bypass (Add-MpPreference -Exclusion*)", "Defender exclusion bypass (Add-MpPreference -Exclusion*)"},
+	{mustCompile(`\bstop-service\b[^\n]*\bwindefend\b`), "stop Windows Defender service (Stop-Service)", "stop Windows Defender service (Stop-Service)"},
+	{mustCompile(`\bsc(?:\.exe)?\s+stop\s+windefend\b`), "stop Windows Defender service (sc stop)", "stop Windows Defender service (sc stop)"},
+	{mustCompile(`\bsc(?:\.exe)?\s+config\s+windefend\b[^\n]*start=\s*disabled\b`), "disable Windows Defender service at boot", "disable Windows Defender service at boot"},
+	// Boot configuration tampering
+	{mustCompile(`\bbcdedit\b[^\n]*/set\b`), "bcdedit boot configuration modification", "bcdedit boot configuration modification"},
+	{mustCompile(`\bbcdedit\b[^\n]*/deletevalue\b`), "bcdedit boot value deletion", "bcdedit boot value deletion"},
+	// cipher /w free-space wipe
+	{mustCompile(`\bcipher\s+/w:`), "cipher /w (secure-wipe free space)", "cipher /w (secure-wipe free space)"},
+	// Registry hive deletion
+	{mustCompile(`\breg\s+delete\s+("?hklm\\|hkey_local_machine\\)`), "delete HKLM registry key", "delete HKLM registry key"},
+	{mustCompile(`\breg\s+delete\s+("?hkcu\\|hkey_current_user\\)`), "delete HKCU registry key", "delete HKCU registry key"},
+	// Delete local user account
+	{mustCompile(`\bnet\s+user\s+\S+\s+/delete\b`), "delete Windows user account (net user /delete)", "delete Windows user account (net user /delete)"},
+	{mustCompile(`\bremove-localuser\b`), "delete Windows user account (Remove-LocalUser)", "delete Windows user account (Remove-LocalUser)"},
+	// Credential dump tooling
+	{mustCompile(`\bmimikatz\b`), "mimikatz credential dumper", "mimikatz credential dumper"},
+	{mustCompile(`\bprocdump(?:\.exe)?\b[^\n]*-ma\b[^\n]*\blsass\b`), "procdump LSASS credential dump", "procdump LSASS credential dump"},
+	{mustCompile(`\brundll32(?:\.exe)?\s+[^\n]*comsvcs\.dll[^\n]*minidump\b`), "comsvcs.dll MiniDump (LSASS dump LOLBIN)", "comsvcs.dll MiniDump (LSASS dump LOLBIN)"},
+	// Active Directory database
+	{mustCompile(`\bntdsutil\b`), "ntdsutil (Active Directory database access)", "ntdsutil (Active Directory database access)"},
+	// Anti-forensics: clear Windows event logs
+	{mustCompile(`\bwevtutil\s+cl\b`), "clear Windows event log (wevtutil cl)", "clear Windows event log (wevtutil cl)"},
+	{mustCompile(`\bclear-eventlog\b`), "clear Windows event log (Clear-EventLog)", "clear Windows event log (Clear-EventLog)"},
+	{mustCompile(`\bwevtutil\s+sl\b[^\n]*/e:false\b`), "disable Windows event log channel (wevtutil sl /e:false)", "disable Windows event log channel (wevtutil sl /e:false)"},
+	// Disable Volume Shadow Copy service
+	{mustCompile(`\bsc(?:\.exe)?\s+(stop|delete|config)\s+vss\b`), "disable Volume Shadow Copy service", "disable Volume Shadow Copy service"},
+}
