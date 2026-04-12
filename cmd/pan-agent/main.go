@@ -66,12 +66,20 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", 8642, "TCP port to listen on")
 	host := fs.String("host", "127.0.0.1", "Host address to bind to")
+	profile := fs.String("profile", "", "Pan-agent profile name")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	srv := gateway.New(*host, *port)
+	db, err := storage.Open(paths.StateDB())
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
+	addr := fmt.Sprintf("%s:%d", *host, *port)
+	srv := gateway.New(addr, db, *profile)
 
 	// Handle SIGINT / SIGTERM for graceful shutdown.
 	quit := make(chan os.Signal, 1)
@@ -89,7 +97,7 @@ func cmdServe(args []string) error {
 		fmt.Printf("\npan-agent: received %s, shutting down...\n", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return srv.Shutdown(ctx)
+		return srv.Stop(ctx)
 	case err := <-errCh:
 		return err
 	}

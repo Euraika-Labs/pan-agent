@@ -183,8 +183,12 @@ func (b *browserTool) navigate(ctx context.Context, page *rod.Page, url string) 
 		_ = err
 	}
 
-	title, err := page.Context(ctx).Title()
-	if err != nil {
+	titleEl, err := page.Context(ctx).Element("title")
+	var title string
+	if err == nil {
+		title, _ = titleEl.Text()
+	}
+	if title == "" {
 		title = "(unknown title)"
 	}
 
