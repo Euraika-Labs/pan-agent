@@ -131,10 +131,30 @@ func AuthFile() string {
 	return filepath.Join(dataDir(), "auth.json")
 }
 
-// SkillsDir returns the path to the skills directory.
+// SkillsDir returns the path to the installed skills directory.
+// Structure: <AgentHome>/skills/<category>/<skill-name>/SKILL.md
 func SkillsDir() string {
 	dir := filepath.Join(AgentHome(), "skills")
 	mustMkdir(dir)
+	return dir
+}
+
+// ProfileSkillsDir returns the skills directory for a named profile.
+func ProfileSkillsDir(profile string) string {
+	dir := filepath.Join(ProfileHome(profile), "skills")
+	mustMkdir(dir)
+	return dir
+}
+
+// BundledSkillsDir returns the path to the bundled skills shipped with the
+// binary.  Bundled skills live next to the executable under skills/.
+// Returns an empty string if the directory does not exist.
+func BundledSkillsDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(filepath.Dir(exe), "skills")
 	return dir
 }
 
