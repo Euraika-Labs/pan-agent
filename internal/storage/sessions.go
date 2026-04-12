@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -25,12 +26,15 @@ LIMIT ? OFFSET ?`
 	var sessions []Session
 	for rows.Next() {
 		var s Session
+		var model, title sql.NullString
 		if err := rows.Scan(
 			&s.ID, &s.Source, &s.StartedAt, &s.EndedAt,
-			&s.MessageCount, &s.Model, &s.Title,
+			&s.MessageCount, &model, &title,
 		); err != nil {
 			return nil, fmt.Errorf("ListSessions scan: %w", err)
 		}
+		s.Model = model.String
+		s.Title = title.String
 		sessions = append(sessions, s)
 	}
 	if err := rows.Err(); err != nil {
@@ -73,12 +77,15 @@ LIMIT ?`
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
+		var title, model sql.NullString
 		if err := rows.Scan(
-			&r.SessionID, &r.Title, &r.StartedAt, &r.Source,
-			&r.MessageCount, &r.Model, &r.Snippet,
+			&r.SessionID, &title, &r.StartedAt, &r.Source,
+			&r.MessageCount, &model, &r.Snippet,
 		); err != nil {
 			return nil, fmt.Errorf("SearchSessions scan: %w", err)
 		}
+		r.Title = title.String
+		r.Model = model.String
 		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {

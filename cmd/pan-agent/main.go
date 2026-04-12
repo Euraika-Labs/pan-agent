@@ -150,7 +150,7 @@ func cmdChat(args []string) error {
 	client := llm.NewClient(baseURL, apiKey, model)
 
 	fmt.Printf("pan-agent chat — model: %s  profile: %s\n", model, *profile)
-	fmt.Println("Type a message and press Enter. Ctrl-C or Ctrl-D to quit.\n")
+	fmt.Println("Type a message and press Enter. Ctrl-C or Ctrl-D to quit.")
 
 	var history []llm.Message
 	scanner := bufio.NewScanner(os.Stdin)
