@@ -8,7 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Repo:** `git.euraika.net/euraika/pan-agent` (GitLab primary), `github.com/Euraika-Labs/pan-agent` (mirror)
 - **Owner:** Bert Colemont (`bert@euraika.net`)
-- **Status:** Phase 1-6 complete. Agent core, tools, Tauri desktop (14 screens), and PC control (screenshot, keyboard, mouse, OCR, window manager).
+- **Status:** Phase 1-7 complete. Agent core, tools, Tauri desktop (15 screens), PC control, onboarding wizard, profile CRUD, config/health API parity with frontend.
+- **Version:** 0.1.1 (tagged, released on GitHub)
 
 ## Build & Run
 
@@ -20,7 +21,7 @@ alias go='C:/Users/bertc/go-sdk/go/bin/go.exe'
 go build -o pan-agent.exe ./cmd/pan-agent
 
 # Build with version info (used in CI)
-go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=0.1.0 \
+go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=0.1.1 \
   -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD)" \
   -o pan-agent.exe ./cmd/pan-agent
 
@@ -55,7 +56,7 @@ Monorepo: Go backend serves REST+SSE on localhost:8642. The Tauri/React frontend
 - **`internal/tools/`** — Tool interface (`Name`, `Description`, `Parameters`, `Execute`) with global registry (`Register`/`Get`/`All`). Each file is one tool: `terminal.go`, `filesystem.go`, `browser.go`, `screenshot.go`, `keyboard.go`, `mouse.go`, `ocr.go`, `window_manager.go`, etc.
 - **`internal/approval/`** — Regex-based command safety classification. `Check(cmd) -> {Level, Pattern}`. Three levels: `Safe` (0), `Dangerous` (1), `Catastrophic` (2). Catastrophic checked before Dangerous.
 - **`internal/storage/`** — Pure Go SQLite (`modernc.org/sqlite`) with FTS5. Sessions and messages. Tests use `t.TempDir()` for isolated DB files.
-- **`internal/config/`** — Profile-based configuration. `.env` parser, `config.yaml` reader, credential management. API key resolution order: `REGOLO_API_KEY` > `OPENAI_API_KEY` > `API_KEY` > env var.
+- **`internal/config/`** — Profile-based configuration. `.env` parser, `config.yaml` reader, credential management, profile CRUD (`profiles.go`), diagnostics (`doctor.go`). API key resolution order: `REGOLO_API_KEY` > `OPENAI_API_KEY` > `API_KEY` > env var.
 - **`internal/memory/`** — MEMORY.md + USER.md files with `§` delimiter and character limits.
 - **`internal/persona/`** — SOUL.md persona system.
 - **`internal/models/`** — Model library with remote sync.
@@ -63,7 +64,7 @@ Monorepo: Go backend serves REST+SSE on localhost:8642. The Tauri/React frontend
 
 ### Desktop frontend (`desktop/`)
 
-React 19 + Vite 7 + Tailwind CSS 4 + Tauri v2. 14 screens in `src/screens/`. API client in `src/api.ts` using `fetchJSON` and `streamSSE` helpers against `VITE_API_BASE` (defaults to `http://localhost:8642`).
+React 19 + Vite 7 + Tailwind CSS 4 + Tauri v2. 15 screens in `src/screens/` (including Setup onboarding wizard). API client in `src/api.ts` using `fetchJSON` and `streamSSE` helpers against `VITE_API_BASE` (defaults to `http://localhost:8642`). First-run detection in `Layout.tsx` redirects to Setup when no LLM provider is configured.
 
 ## Key Design Decisions
 
@@ -85,3 +86,16 @@ Files: `.env`, `config.yaml`, `state.db`, `MEMORY.md`, `USER.md`, `SOUL.md`, `mo
 ## CI
 
 GitLab CI (`.gitlab-ci.yml`): `test:go` runs `go test ./...`, `test:desktop` runs `tsc --noEmit` + `vite build`, `build:binary` produces versioned binary with ldflags. Includes SAST and dependency scanning templates.
+
+GitHub CI (`.github/workflows/ci.yml`): Go build/test on Linux+Windows+macOS, desktop typecheck+build, Tauri build on Windows. Releases published on GitHub via `gh release create` with versioned binary.
+
+## API Overview
+
+40 endpoints across 10 resource groups. Key additions in v0.1.1:
+
+- `GET /v1/config` returns structured `ConfigResponse` (env, agentHome, model, credentialPool, appVersion, agentVersion)
+- `PUT /v1/config` accepts union body with optional `env`, `model`, `credentialPool`, `platformEnabled` fields
+- `GET /v1/health` returns `{gateway, env, platformEnabled}` (not just `{status: ok}`)
+- `GET/POST/DELETE /v1/config/profiles` — profile CRUD with path traversal protection
+- `POST /v1/config/doctor` — run diagnostics via HTTP (same checks as CLI `doctor`)
+- `POST /v1/health/gateway/start` and `/stop` — messaging gateway toggle (stubs)
