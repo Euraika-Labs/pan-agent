@@ -1,5 +1,17 @@
+# Go
 /pan-agent
 /pan-agent.exe
-/dist/
-/coverage/
 *.test
+/coverage/
+
+# Tauri / Rust
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# Node
+desktop/node_modules/
+desktop/dist/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,47 @@
+{
+  "name": "pan-desktop",
+  "version": "0.1.0",
+  "description": "Pan Desktop — Tauri desktop app for Pan-Agent",
+  "productName": "Pan Desktop",
+  "author": "Euraika Labs",
+  "homepage": "https://git.euraika.net/euraika/pan-desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://git.euraika.net/euraika/pan-desktop.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:tauri\"",
+    "dev:vite": "vite",
+    "dev:tauri": "tauri dev",
+    "build": "npm run build:vite && npm run build:tauri",
+    "build:vite": "tsc -noEmit && vite build",
+    "build:tauri": "tauri build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-shell": "^2",
+    "lucide-react": "^0.525.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.1.2",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.6"
+  }
+}

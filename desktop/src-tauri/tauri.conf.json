@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pan Desktop",
+  "version": "0.1.0",
+  "identifier": "net.euraika.pandesktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev:vite",
+    "beforeBuildCommand": "npm run build:vite"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Pan Desktop",
+        "width": 1200,
+        "height": 800,
+        "center": true,
+        "resizable": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/pan-agent"
+    ],
+    "windows": {
+      "nsis": {
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      },
+      "wix": {}
+    }
+  }
+}
