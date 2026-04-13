@@ -70,7 +70,7 @@ func filePath() string {
 
 // rawJob mirrors the on-disk shape which may differ slightly from Job.
 // Specifically, schedule may be stored as a nested object with a "value" key
-// (hermes-agent format) or as a plain string.  We normalise on read.
+// (pan-agent legacy format) or as a plain string.  We normalise on read.
 type rawJob struct {
 	ID       string          `json:"id"`
 	Name     string          `json:"name"`
@@ -89,7 +89,7 @@ type rawJob struct {
 	Script   string          `json:"script"`
 }
 
-// scheduleValue is the nested-object schedule format used by hermes-agent.
+// scheduleValue is the nested-object schedule format used by pan-agent legacy jobs.
 type scheduleValue struct {
 	Value string `json:"value"`
 }

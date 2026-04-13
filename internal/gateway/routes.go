@@ -578,7 +578,7 @@ func (s *Server) handleClaw3dStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, claw3d.Status())
 }
 
-// handleClaw3dSetup clones the hermes-office repo and runs npm install.
+// handleClaw3dSetup clones the upstream Claw3D repo and runs npm install.
 // Streams progress lines as newline-delimited JSON objects:
 //
 //	{"progress": "..."}

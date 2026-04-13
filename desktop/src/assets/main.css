@@ -1886,25 +1886,25 @@ body {
   }
 }
 
-.settings-hermes-info {
+.settings-agent-info {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.settings-hermes-row {
+.settings-agent-row {
   display: flex;
   gap: 24px;
   flex-wrap: wrap;
 }
 
-.settings-hermes-detail {
+.settings-agent-detail {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.settings-hermes-label {
+.settings-agent-label {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
@@ -1912,18 +1912,18 @@ body {
   letter-spacing: 0.5px;
 }
 
-.settings-hermes-value {
+.settings-agent-value {
   font-size: 13px;
   color: var(--text-primary);
 }
 
-.settings-hermes-path {
+.settings-agent-path {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.settings-hermes-update-badge {
+.settings-agent-update-badge {
   font-size: 12px;
   color: var(--warning);
   background: rgba(245, 158, 11, 0.1);
@@ -1932,23 +1932,23 @@ body {
   width: fit-content;
 }
 
-.settings-hermes-actions {
+.settings-agent-actions {
   display: flex;
   gap: 8px;
 }
 
-.settings-hermes-result {
+.settings-agent-result {
   font-size: 12px;
   padding: 6px 10px;
   border-radius: var(--radius);
 }
 
-.settings-hermes-result.success {
+.settings-agent-result.success {
   color: var(--success);
   background: var(--success-bg);
 }
 
-.settings-hermes-result.error {
+.settings-agent-result.error {
   color: var(--error);
   background: var(--error-bg);
 }
@@ -2005,7 +2005,7 @@ body {
   gap: 8px;
 }
 
-.settings-hermes-doctor {
+.settings-agent-doctor {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;

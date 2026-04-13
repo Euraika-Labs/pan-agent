@@ -189,7 +189,7 @@ func Status() *Claw3dStatus {
 // Setup
 // ---------------------------------------------------------------------------
 
-// Setup clones (or pulls) the hermes-office repository and runs npm install.
+// Setup clones (or pulls) the upstream Claw3D repository and runs npm install.
 // progress is called with human-readable status lines as they occur.
 func Setup(progress func(string)) error {
 	repoDir := paths.Claw3dDir()
@@ -201,7 +201,7 @@ func Setup(progress func(string)) error {
 	}
 
 	if !cloned {
-		progress("Cloning hermes-office from GitHub...\n")
+		progress("Cloning Claw3D from GitHub...\n")
 		if err := runCapture(progress, paths.AgentHome(),
 			"git", "clone", repoURL, repoDir); err != nil {
 			return fmt.Errorf("claw3d: git clone: %w", err)
@@ -329,7 +329,7 @@ func StopDevServer() error {
 // Adapter
 // ---------------------------------------------------------------------------
 
-// StartAdapter spawns `npm run hermes-adapter` in the repo directory.
+// StartAdapter spawns the adapter script (`npm run hermes-adapter`) in the repo directory.
 // It is a no-op if the adapter is already running.
 func StartAdapter() error {
 	if isAdapterRunning() {

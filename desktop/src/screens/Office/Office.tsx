@@ -271,7 +271,7 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
               </button>
               <a
                 className="btn btn-secondary"
-                href="https://github.com/fathah/hermes-office"
+                href="https://github.com/Euraika-Labs/pan-office"
                 target="_blank"
                 rel="noreferrer"
               >

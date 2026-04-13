@@ -305,73 +305,73 @@ function Settings({
 
       <div className="settings-section">
         <div className="settings-section-title">Pan-Agent</div>
-        <div className="settings-hermes-info">
-          <div className="settings-hermes-row">
-            <div className="settings-hermes-detail">
-              <span className="settings-hermes-label">Engine</span>
+        <div className="settings-agent-info">
+          <div className="settings-agent-row">
+            <div className="settings-agent-detail">
+              <span className="settings-agent-label">Engine</span>
               {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
-                <span className="settings-hermes-value">
+                <span className="settings-agent-value">
                   {parsedVersion ? `v${parsedVersion.version}` : "Not detected"}
                 </span>
               )}
             </div>
-            <div className="settings-hermes-detail">
-              <span className="settings-hermes-label">Released</span>
+            <div className="settings-agent-detail">
+              <span className="settings-agent-label">Released</span>
               {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
-                <span className="settings-hermes-value">
+                <span className="settings-agent-value">
                   {parsedVersion?.date || "—"}
                 </span>
               )}
             </div>
-            <div className="settings-hermes-detail">
-              <span className="settings-hermes-label">Desktop</span>
+            <div className="settings-agent-detail">
+              <span className="settings-agent-label">Desktop</span>
               {!appVersion ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
-                <span className="settings-hermes-value">v{appVersion}</span>
+                <span className="settings-agent-value">v{appVersion}</span>
               )}
             </div>
-            <div className="settings-hermes-detail">
-              <span className="settings-hermes-label">Python</span>
+            <div className="settings-agent-detail">
+              <span className="settings-agent-label">Python</span>
               {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
-                <span className="settings-hermes-value">
+                <span className="settings-agent-value">
                   {parsedVersion?.python || "—"}
                 </span>
               )}
             </div>
-            <div className="settings-hermes-detail">
-              <span className="settings-hermes-label">OpenAI SDK</span>
+            <div className="settings-agent-detail">
+              <span className="settings-agent-label">OpenAI SDK</span>
               {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
-                <span className="settings-hermes-value">
+                <span className="settings-agent-value">
                   {parsedVersion?.sdk || "—"}
                 </span>
               )}
             </div>
-            <div className="settings-hermes-detail">
-              <span className="settings-hermes-label">Home</span>
+            <div className="settings-agent-detail">
+              <span className="settings-agent-label">Home</span>
               {!agentHome ? (
                 <span className="skeleton skeleton-md" />
               ) : (
-                <span className="settings-hermes-value settings-hermes-path">
+                <span className="settings-agent-value settings-agent-path">
                   {agentHome}
                 </span>
               )}
             </div>
           </div>
           {parsedVersion?.updateInfo && (
-            <div className="settings-hermes-update-badge">
+            <div className="settings-agent-update-badge">
               {parsedVersion.updateInfo}
             </div>
           )}
-          <div className="settings-hermes-actions">
+          <div className="settings-agent-actions">
             {parsedVersion?.updateInfo ? (
               <button
                 className="btn btn-primary"
@@ -395,13 +395,13 @@ function Settings({
           </div>
           {updateResult && (
             <div
-              className={`settings-hermes-result ${updateResult.includes("success") ? "success" : "error"}`}
+              className={`settings-agent-result ${updateResult.includes("success") ? "success" : "error"}`}
             >
               {updateResult}
             </div>
           )}
           {doctorOutput && (
-            <pre className="settings-hermes-doctor">{doctorOutput}</pre>
+            <pre className="settings-agent-doctor">{doctorOutput}</pre>
           )}
         </div>
       </div>
