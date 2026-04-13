@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/euraika-labs/pan-agent/internal/approval"
+	"github.com/euraika-labs/pan-agent/internal/claw3d"
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/cron"
 	"github.com/euraika-labs/pan-agent/internal/llm"
@@ -74,6 +75,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// ----------------------------------------------------------------- health
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+
+	// ---------------------------------------------------------------- claw3d
+	mux.HandleFunc("GET /v1/claw3d/status", s.handleClaw3dStatus)
+	mux.HandleFunc("POST /v1/claw3d/setup", s.handleClaw3dSetup)
+	mux.HandleFunc("POST /v1/claw3d/start", s.handleClaw3dStart)
+	mux.HandleFunc("POST /v1/claw3d/stop", s.handleClaw3dStop)
 }
 
 // =============================================================================
@@ -559,6 +566,75 @@ func (s *Server) handleCronDelete(w http.ResponseWriter, r *http.Request) {
 // =============================================================================
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// =============================================================================
+// Claw3D handlers
+// =============================================================================
+
+// handleClaw3dStatus returns the current Claw3D installation and process state.
+func (s *Server) handleClaw3dStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, claw3d.Status())
+}
+
+// handleClaw3dSetup clones the hermes-office repo and runs npm install.
+// Streams progress lines as newline-delimited JSON objects:
+//
+//	{"progress": "..."}
+//
+// Ends with {"done": true} on success or {"error": "..."} on failure.
+func (s *Server) handleClaw3dSetup(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+
+	flush := func() {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+
+	enc := json.NewEncoder(w)
+	emit := func(line string) {
+		_ = enc.Encode(map[string]string{"progress": line})
+		flush()
+	}
+
+	err := claw3d.Setup(emit)
+	if err != nil {
+		_ = enc.Encode(map[string]string{"error": err.Error()})
+		flush()
+		return
+	}
+	_ = enc.Encode(map[string]bool{"done": true})
+	flush()
+}
+
+// handleClaw3dStart starts both the dev server and the adapter.
+func (s *Server) handleClaw3dStart(w http.ResponseWriter, _ *http.Request) {
+	if err := claw3d.StartDevServer(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := claw3d.StartAdapter(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleClaw3dStop stops both the dev server and the adapter.
+func (s *Server) handleClaw3dStop(w http.ResponseWriter, _ *http.Request) {
+	devErr := claw3d.StopDevServer()
+	adpErr := claw3d.StopAdapter()
+	if devErr != nil {
+		writeError(w, http.StatusInternalServerError, devErr.Error())
+		return
+	}
+	if adpErr != nil {
+		writeError(w, http.StatusInternalServerError, adpErr.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

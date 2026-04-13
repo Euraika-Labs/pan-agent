@@ -2,7 +2,7 @@
 //
 // It exposes a REST + SSE interface on localhost (default port 8642) that the
 // Tauri desktop frontend — or any HTTP client — can talk to. It replaces both
-// the Electron IPC bridge and the Python Hermes gateway.
+// the predecessor Electron IPC bridge.
 package gateway
 
 import (

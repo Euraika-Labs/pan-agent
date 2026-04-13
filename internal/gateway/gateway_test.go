@@ -89,7 +89,7 @@ func TestPersonaEndpoints(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("persona GET: got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Hermes") {
+	if !strings.Contains(w.Body.String(), "Pan") {
 		t.Logf("persona GET: body does not contain default persona (may be OK if customized)")
 	}
 

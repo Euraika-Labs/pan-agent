@@ -1,5 +1,5 @@
 // Package storage manages the SQLite database for Pan-Agent session history.
-// Pan-Agent owns this database (unlike the old read-only access to Hermes
+// Pan-Agent owns this database (unlike the old read-only predecessor
 // Agent's DB). The database lives at the path provided to Open; callers
 // typically use paths.StateDB() to obtain that path.
 //

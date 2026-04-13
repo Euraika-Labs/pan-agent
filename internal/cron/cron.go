@@ -3,7 +3,7 @@
 // Each Job has a cron schedule expression, a prompt, state (active/paused/
 // completed), and optional metadata.  The file format is a JSON array so that
 // it is human-editable and compatible with the TypeScript jobs.json produced by
-// the hermes-agent process.
+// the pan-agent process.
 //
 // All mutations are protected by an in-process mutex.  The file is the source
 // of truth for cross-process coordination.

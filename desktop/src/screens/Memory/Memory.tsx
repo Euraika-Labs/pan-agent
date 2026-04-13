@@ -207,7 +207,7 @@ function Memory({ profile }: { profile?: string }): React.JSX.Element {
             Memory
           </h1>
           <p className="memory-subtitle">
-            What Hermes remembers about you and your environment across
+            What Pan-Agent remembers about you and your environment across
             sessions.
           </p>
         </div>
@@ -329,7 +329,7 @@ function Memory({ profile }: { profile?: string }): React.JSX.Element {
           {data.memory.entries.length === 0 ? (
             <div className="memory-empty">
               <p>
-                No memories yet. Hermes will save important facts as you chat.
+                No memories yet. Pan-Agent will save important facts as you chat.
               </p>
               <p className="memory-empty-hint">
                 You can also add memories manually using the button above.
@@ -417,7 +417,7 @@ function Memory({ profile }: { profile?: string }): React.JSX.Element {
         <div className="memory-profile">
           <div className="memory-profile-header">
             <span className="memory-profile-hint">
-              Tell Hermes about yourself — name, role, preferences,
+              Tell Pan-Agent about yourself — name, role, preferences,
               communication style.
             </span>
             {userSaved && (

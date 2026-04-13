@@ -15,15 +15,16 @@ var (
 
 const processQueryLimitedInfo = 0x1000
 
-// signalZero checks whether a process is alive on Windows by opening a handle.
-func signalZero(p *os.Process) error {
-	h, _, err := procOpenProcess.Call(processQueryLimitedInfo, 0, uintptr(p.Pid))
+// probeAlive checks whether the process is still alive on Windows by opening
+// a handle with PROCESS_QUERY_LIMITED_INFORMATION rights.
+func probeAlive(p *os.Process) bool {
+	h, _, _ := procOpenProcess.Call(processQueryLimitedInfo, 0, uintptr(p.Pid))
 	if h == 0 {
-		return err
+		return false
 	}
 	syscall.CloseHandle(syscall.Handle(h))
-	_ = unsafe.Sizeof(h) // suppress unused import
-	return nil
+	_ = unsafe.Sizeof(h) // keep unsafe import live
+	return true
 }
 
 // killProcess terminates the process on Windows.

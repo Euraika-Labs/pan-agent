@@ -24,7 +24,7 @@ type ModelConfig struct {
 }
 
 // cliProviderMap translates UI provider names to the values written into
-// config.yaml (which the Hermes CLI reads).
+// config.yaml (for the agent CLI).
 var cliProviderMap = map[string]string{
 	"regolo": "custom",
 }
@@ -75,7 +75,7 @@ func GetModelConfig(profile string) ModelConfig {
 // SetModelConfig writes provider, model, and baseUrl into the config.yaml for
 // profile.  It also:
 //
-//   - Maps "regolo" → "custom" before writing (Hermes CLI vocabulary).
+//   - Maps "regolo" → "custom" before writing (agent CLI vocabulary).
 //   - Disables smart_model_routing.enabled when it immediately follows the
 //     smart_model_routing: key.
 //   - Ensures streaming: true.
@@ -92,7 +92,7 @@ func SetModelConfig(provider, model, baseURL, profile string) error {
 	}
 	content := string(data)
 
-	// Translate UI provider name to Hermes CLI value.
+	// Translate UI provider name to agent CLI value.
 	writeProvider := provider
 	if mapped, ok := cliProviderMap[provider]; ok {
 		writeProvider = mapped

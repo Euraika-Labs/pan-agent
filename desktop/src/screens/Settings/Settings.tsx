@@ -11,12 +11,12 @@ function useTheme(): {
 } {
   const [theme, setThemeState] = useState<"system" | "light" | "dark">(
     () =>
-      (localStorage.getItem("hermes-theme") as "system" | "light" | "dark") ||
+      (localStorage.getItem("pan-theme") as "system" | "light" | "dark") ||
       "system",
   );
 
   function setTheme(t: "system" | "light" | "dark"): void {
-    localStorage.setItem("hermes-theme", t);
+    localStorage.setItem("pan-theme", t);
     setThemeState(t);
     const isDark =
       t === "dark" ||
@@ -34,11 +34,11 @@ function useTheme(): {
 
 interface ConfigResponse {
   env: Record<string, string>;
-  hermesHome: string;
+  agentHome: string;
   model: { provider: string; model: string; baseUrl: string };
   credentialPool: Record<string, Array<{ key: string; label: string }>>;
   appVersion: string;
-  hermesVersion: string | null;
+  agentVersion: string | null;
 }
 
 interface OperationResult {
@@ -48,7 +48,7 @@ interface OperationResult {
 
 function getCachedVersion(): string | null {
   try {
-    return localStorage.getItem("hermes-version-cache");
+    return localStorage.getItem("agent-version-cache");
   } catch {
     return null;
   }
@@ -63,11 +63,11 @@ function Settings({
 }): React.JSX.Element {
   const [env, setEnv] = useState<Record<string, string>>({});
   const [savedKey, setSavedKey] = useState<string | null>(null);
-  const [hermesHome, setHermesHome] = useState("");
+  const [agentHome, setAgentHome] = useState("");
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
   const { theme, setTheme } = useTheme();
 
-  const [hermesVersion, setHermesVersion] = useState<string | null>(
+  const [agentVersion, setAgentVersion] = useState<string | null>(
     getCachedVersion,
   );
   const [appVersion, setAppVersion] = useState("");
@@ -98,16 +98,16 @@ function Settings({
         profile ? `/v1/config?profile=${encodeURIComponent(profile)}` : "/v1/config",
       );
       setEnv(cfg.env ?? {});
-      setHermesHome(cfg.hermesHome ?? "");
+      setAgentHome(cfg.agentHome ?? "");
       setModelProvider(cfg.model?.provider ?? "auto");
       setModelName(cfg.model?.model ?? "");
       setModelBaseUrl(cfg.model?.baseUrl ?? "");
       setCredPool(cfg.credentialPool ?? {});
       setAppVersion(cfg.appVersion ?? "");
-      if (cfg.hermesVersion) {
-        setHermesVersion(cfg.hermesVersion);
+      if (cfg.agentVersion) {
+        setAgentVersion(cfg.agentVersion);
         try {
-          localStorage.setItem("hermes-version-cache", cfg.hermesVersion);
+          localStorage.setItem("agent-version-cache", cfg.agentVersion);
         } catch {
           /* ignore */
         }
@@ -257,7 +257,7 @@ function Settings({
     }
   }
 
-  async function handleUpdateHermes(): Promise<void> {
+  async function handleUpdateAgent(): Promise<void> {
     setUpdating(true);
     setUpdateResult(null);
     try {
@@ -268,10 +268,10 @@ function Settings({
         setUpdateResult("Updated successfully!");
         // Refresh version
         const cfg = await fetchJSON<ConfigResponse>("/v1/config");
-        if (cfg.hermesVersion) {
-          setHermesVersion(cfg.hermesVersion);
+        if (cfg.agentVersion) {
+          setAgentVersion(cfg.agentVersion);
           try {
-            localStorage.setItem("hermes-version-cache", cfg.hermesVersion);
+            localStorage.setItem("agent-version-cache", cfg.agentVersion);
           } catch {
             /* ignore */
           }
@@ -287,12 +287,12 @@ function Settings({
   }
 
   const parsedVersion = (() => {
-    if (!hermesVersion) return null;
-    const version = hermesVersion.match(/v([\d.]+)/)?.[1] || "";
-    const date = hermesVersion.match(/\(([\d.]+)\)/)?.[1] || "";
-    const python = hermesVersion.match(/Python:\s*([\d.]+)/)?.[1] || "";
-    const sdk = hermesVersion.match(/OpenAI SDK:\s*([\d.]+)/)?.[1] || "";
-    const updateMatch = hermesVersion.match(/Update available:\s*(.+?)(?:\s*—|$)/);
+    if (!agentVersion) return null;
+    const version = agentVersion.match(/v([\d.]+)/)?.[1] || "";
+    const date = agentVersion.match(/\(([\d.]+)\)/)?.[1] || "";
+    const python = agentVersion.match(/Python:\s*([\d.]+)/)?.[1] || "";
+    const sdk = agentVersion.match(/OpenAI SDK:\s*([\d.]+)/)?.[1] || "";
+    const updateMatch = agentVersion.match(/Update available:\s*(.+?)(?:\s*—|$)/);
     const updateInfo = updateMatch?.[1]?.trim() || null;
     return { version, date, python, sdk, updateInfo };
   })();
@@ -304,12 +304,12 @@ function Settings({
       <h1 className="settings-header">Settings</h1>
 
       <div className="settings-section">
-        <div className="settings-section-title">Hermes Agent</div>
+        <div className="settings-section-title">Pan-Agent</div>
         <div className="settings-hermes-info">
           <div className="settings-hermes-row">
             <div className="settings-hermes-detail">
               <span className="settings-hermes-label">Engine</span>
-              {hermesVersion === null ? (
+              {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
                 <span className="settings-hermes-value">
@@ -319,7 +319,7 @@ function Settings({
             </div>
             <div className="settings-hermes-detail">
               <span className="settings-hermes-label">Released</span>
-              {hermesVersion === null ? (
+              {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
                 <span className="settings-hermes-value">
@@ -337,7 +337,7 @@ function Settings({
             </div>
             <div className="settings-hermes-detail">
               <span className="settings-hermes-label">Python</span>
-              {hermesVersion === null ? (
+              {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
                 <span className="settings-hermes-value">
@@ -347,7 +347,7 @@ function Settings({
             </div>
             <div className="settings-hermes-detail">
               <span className="settings-hermes-label">OpenAI SDK</span>
-              {hermesVersion === null ? (
+              {agentVersion === null ? (
                 <span className="skeleton skeleton-sm" />
               ) : (
                 <span className="settings-hermes-value">
@@ -357,11 +357,11 @@ function Settings({
             </div>
             <div className="settings-hermes-detail">
               <span className="settings-hermes-label">Home</span>
-              {!hermesHome ? (
+              {!agentHome ? (
                 <span className="skeleton skeleton-md" />
               ) : (
                 <span className="settings-hermes-value settings-hermes-path">
-                  {hermesHome}
+                  {agentHome}
                 </span>
               )}
             </div>
@@ -375,7 +375,7 @@ function Settings({
             {parsedVersion?.updateInfo ? (
               <button
                 className="btn btn-primary"
-                onClick={handleUpdateHermes}
+                onClick={handleUpdateAgent}
                 disabled={updating}
               >
                 {updating ? "Updating..." : "Update Engine"}
@@ -501,7 +501,7 @@ function Settings({
         <div className="settings-field">
           <div className="settings-field-hint" style={{ marginBottom: 10 }}>
             Add multiple API keys per provider for automatic rotation and load
-            balancing. Hermes will cycle through them.
+            balancing. Pan-Agent will cycle through them.
           </div>
           <div className="settings-pool-add">
             <select

@@ -256,7 +256,7 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
           <div className="office-setup-card">
             <h2 className="office-setup-title">Set Up Claw3D</h2>
             <p className="office-setup-desc">
-              Claw3D is a 3D visualization environment for your Hermes agents.
+              Claw3D is a 3D visualization environment for your AI agents.
               It lets you see your agents working in an interactive office
               space.
             </p>

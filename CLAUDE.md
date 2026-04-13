@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Pan-Agent** — AI desktop agent with full PC control. Go backend + Tauri/React frontend. Replaces the Electron+Python stack (Pan Desktop + Hermes Agent).
+**Pan-Agent** — AI desktop agent with full PC control. Go backend + Tauri/React frontend. Replaces the Electron+Python stack (Pan Desktop).
 
 - **Repo:** `git.euraika.net/euraika/pan-agent` (GitLab primary), `github.com/Euraika-Labs/pan-agent` (mirror)
 - **Owner:** Bert Colemont (`bert@euraika.net`)
@@ -79,7 +79,7 @@ Files: `.env`, `config.yaml`, `state.db`, `MEMORY.md`, `USER.md`, `SOUL.md`, `mo
 
 ## Predecessor
 
-Pan-Agent replaces Pan Desktop (Electron + Python Hermes Agent):
+Pan-Agent replaces Pan Desktop (Electron + Python agent):
 - Pan Desktop repo: `git.euraika.net/euraika/pan-desktop`
 - Pan Desktop is still the shipping product until Pan-Agent reaches v1.0
 - Data migration path documented in `docs/PAN_AGENT_REWRITE_PLAN.md` (in pan-desktop repo)

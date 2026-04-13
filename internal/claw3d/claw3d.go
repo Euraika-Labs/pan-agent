@@ -4,9 +4,7 @@
 package claw3d
 
 import (
-	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/paths"
 )
@@ -23,7 +20,6 @@ const (
 	repoURL        = "https://github.com/fathah/hermes-office"
 	defaultPort    = 3000
 	defaultWsURL   = "ws://localhost:18789"
-	portCheckTimeout = 300 * time.Millisecond
 )
 
 // file name constants — stored inside AgentHome, not the repo dir.
@@ -80,25 +76,14 @@ func removePID(name string) {
 	_ = os.Remove(pidPath(name))
 }
 
-// isAlive returns true when a PID corresponds to a running process.
+// isAlive returns true when pid corresponds to a running process.
+// probeAlive is provided by process_unix.go / process_windows.go.
 func isAlive(pid int) bool {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
-	// On Windows FindProcess always succeeds; use a zero-signal to probe.
-	if runtime.GOOS == "windows" {
-		// os.FindProcess on Windows returns success for any pid; we need to
-		// actually check. Use a handle-based check via Signal(0) — not
-		// available on Windows via the stdlib. Instead we check whether the
-		// process handle is still valid by calling Wait with a no-hang flag
-		// via a side-channel: just try to open the process.
-		err = signalZero(p)
-		return err == nil
-	}
-	// POSIX: Signal(0) returns nil iff the process exists.
-	err = signalZero(p)
-	return err == nil
+	return probeAlive(p)
 }
 
 // ---------------------------------------------------------------------------
@@ -179,15 +164,6 @@ func isAdapterRunning() bool {
 	return false
 }
 
-// checkPortInUse probes whether a TCP port is already bound.
-func checkPortInUse(port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), portCheckTimeout)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
-}
 
 // ---------------------------------------------------------------------------
 // Status
@@ -226,7 +202,7 @@ func Setup(progress func(string)) error {
 
 	if !cloned {
 		progress("Cloning hermes-office from GitHub...\n")
-		if err := runStreaming(progress, paths.AgentHome(),
+		if err := runCapture(progress, paths.AgentHome(),
 			"git", "clone", repoURL, repoDir); err != nil {
 			return fmt.Errorf("claw3d: git clone: %w", err)
 		}
@@ -234,12 +210,12 @@ func Setup(progress func(string)) error {
 	} else {
 		progress("Repository already exists, pulling latest...\n")
 		// Non-fatal — pull failures should not block setup.
-		_ = runStreaming(progress, repoDir, "git", "pull", "--ff-only")
+		_ = runCapture(progress, repoDir, "git", "pull", "--ff-only")
 		progress("Pull complete.\n")
 	}
 
 	progress("Running npm install...\n")
-	if err := runStreaming(progress, repoDir, npm, "install"); err != nil {
+	if err := runCapture(progress, repoDir, npm, "install"); err != nil {
 		return fmt.Errorf("claw3d: npm install: %w", err)
 	}
 	progress("Dependencies installed successfully.\n")
@@ -262,8 +238,8 @@ func writeEnv(repoDir string) {
 		fmt.Sprintf("CLAW3D_GATEWAY_URL=%s", wsURL),
 		"CLAW3D_GATEWAY_TOKEN=",
 		"HERMES_ADAPTER_PORT=18789",
-		"HERMES_MODEL=hermes",
-		"HERMES_AGENT_NAME=Hermes",
+		"PAN_MODEL=pan",
+		"PAN_AGENT_NAME=Pan",
 		"",
 	}
 	content := strings.Join(lines, "\n")
@@ -420,24 +396,6 @@ func StopAdapter() error {
 	return firstErr
 }
 
-// ---------------------------------------------------------------------------
-// Config marshalling helpers (for HTTP handlers)
-// ---------------------------------------------------------------------------
-
-// PortConfig is the JSON body for SetPort.
-type PortConfig struct {
-	Port int `json:"port"`
-}
-
-// WsURLConfig is the JSON body for SetWsURL.
-type WsURLConfig struct {
-	WsURL string `json:"ws_url"`
-}
-
-// MarshalStatus serialises a Claw3dStatus to JSON bytes.
-func MarshalStatus(s *Claw3dStatus) ([]byte, error) {
-	return json.Marshal(s)
-}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -465,30 +423,14 @@ func findNpm() (string, error) {
 	return "", fmt.Errorf("npm not found in PATH")
 }
 
-// runStreaming runs a command, streaming its combined stdout+stderr through the
-// progress callback line-by-line. Returns an error if the process exits with a
-// non-zero code.
-func runStreaming(progress func(string), dir, name string, args ...string) error {
+// runCapture runs a command and funnels its combined stdout+stderr through
+// progress. Returns a non-nil error if the process exits non-zero.
+func runCapture(progress func(string), dir, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = cmd.Stdout // merge stderr into the same pipe is not possible; use a buffer
-	// Use a combined approach: write both to progress via CombinedOutput for
-	// simplicity — the repo is small so the output fits in memory.
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
 	combined, err := cmd.CombinedOutput()
 	if progress != nil && len(combined) > 0 {
 		progress(string(combined))
 	}
-	_ = out // not used after switching to CombinedOutput
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }

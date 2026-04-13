@@ -123,7 +123,7 @@ export const THEME_OPTIONS = [
   { value: "dark" as const, label: "Dark" },
 ];
 
-export const THEME_STORAGE_KEY = "hermes-theme";
+export const THEME_STORAGE_KEY = "pan-theme";
 
 // ── Settings API Key Sections ───────────────────────────
 

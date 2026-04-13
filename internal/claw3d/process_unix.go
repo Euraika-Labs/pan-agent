@@ -7,10 +7,10 @@ import (
 	"syscall"
 )
 
-// signalZero sends signal 0 to the process, which returns nil iff the process
-// exists and the caller has permission to signal it.
-func signalZero(p *os.Process) error {
-	return p.Signal(syscall.Signal(0))
+// probeAlive returns true if the process exists and is still running.
+// Uses kill(pid, 0) which is a no-op signal that only checks existence.
+func probeAlive(p *os.Process) bool {
+	return p.Signal(syscall.Signal(0)) == nil
 }
 
 // killProcess kills a process. On Unix we send SIGKILL for immediate

@@ -146,7 +146,7 @@ function Layout(): React.JSX.Element {
 
         <div className="sidebar-footer">
           <div className="sidebar-footer-text">
-            {activeProfile === "default" ? "Hermes Agent" : activeProfile}
+            {activeProfile === "default" ? "Pan-Agent" : activeProfile}
           </div>
         </div>
       </aside>

@@ -179,9 +179,9 @@ func CacheDir() string {
 	return dir
 }
 
-// Claw3dDir returns the path to the hermes-office directory.
+// Claw3dDir returns the path to the pan-office / Claw3D directory.
 func Claw3dDir() string {
-	dir := filepath.Join(AgentHome(), "hermes-office")
+	dir := filepath.Join(AgentHome(), "pan-office")
 	mustMkdir(dir)
 	return dir
 }

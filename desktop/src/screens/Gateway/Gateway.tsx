@@ -175,7 +175,7 @@ function Gateway({ profile }: { profile?: string }): React.JSX.Element {
             </button>
           </div>
           <div className="settings-field-hint">
-            Connects Hermes to Telegram, Discord, Slack, and other platforms
+            Connects Pan-Agent to Telegram, Discord, Slack, and other platforms
           </div>
         </div>
       </div>
