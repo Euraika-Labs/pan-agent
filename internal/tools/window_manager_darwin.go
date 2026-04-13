@@ -46,46 +46,46 @@ func listDarwinWindows() ([]darwinWindow, error) {
 		dict := C.CFDictionaryRef(C.CFArrayGetValueAtIndex(list, i))
 
 		// Get window name.
-		var nameRef C.CFTypeRef
+		var namePtr unsafe.Pointer
 		nameKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowName"), C.kCFStringEncodingUTF8)
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(nameKey), &nameRef) == 0 {
+		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(nameKey), &namePtr) == 0 {
 			C.CFRelease(C.CFTypeRef(nameKey))
 			continue
 		}
 		C.CFRelease(C.CFTypeRef(nameKey))
 
-		title := cfStringToGo(C.CFStringRef(nameRef))
+		title := cfStringToGo(C.CFStringRef(namePtr))
 		if title == "" {
 			continue
 		}
 
 		// Get owner name (app name).
-		var ownerRef C.CFTypeRef
+		var ownerPtr unsafe.Pointer
 		ownerKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowOwnerName"), C.kCFStringEncodingUTF8)
 		app := ""
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(ownerKey), &ownerRef) != 0 {
-			app = cfStringToGo(C.CFStringRef(ownerRef))
+		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(ownerKey), &ownerPtr) != 0 {
+			app = cfStringToGo(C.CFStringRef(ownerPtr))
 		}
 		C.CFRelease(C.CFTypeRef(ownerKey))
 
 		// Get PID.
-		var pidRef C.CFTypeRef
+		var pidPtr unsafe.Pointer
 		pidKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowOwnerPID"), C.kCFStringEncodingUTF8)
 		pid := 0
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(pidKey), &pidRef) != 0 {
+		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(pidKey), &pidPtr) != 0 {
 			var val C.int
-			C.CFNumberGetValue(C.CFNumberRef(pidRef), C.kCFNumberIntType, unsafe.Pointer(&val))
+			C.CFNumberGetValue(C.CFNumberRef(pidPtr), C.kCFNumberIntType, unsafe.Pointer(&val))
 			pid = int(val)
 		}
 		C.CFRelease(C.CFTypeRef(pidKey))
 
 		// Get window ID.
-		var widRef C.CFTypeRef
+		var widPtr unsafe.Pointer
 		widKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowNumber"), C.kCFStringEncodingUTF8)
 		wid := 0
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(widKey), &widRef) != 0 {
+		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(widKey), &widPtr) != 0 {
 			var val C.int
-			C.CFNumberGetValue(C.CFNumberRef(widRef), C.kCFNumberIntType, unsafe.Pointer(&val))
+			C.CFNumberGetValue(C.CFNumberRef(widPtr), C.kCFNumberIntType, unsafe.Pointer(&val))
 			wid = int(val)
 		}
 		C.CFRelease(C.CFTypeRef(widKey))
