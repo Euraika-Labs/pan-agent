@@ -1,0 +1,60 @@
+# Pan-Agent CI — GitLab
+#
+# Go test + build on Linux. Windows builds run on GitHub Actions
+# (self-hosted Tauri build requires Rust + Node + Go toolchain).
+
+stages:
+  - test
+  - build
+
+default:
+  interruptible: true
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+test:go:
+  stage: test
+  image: golang:1.23-bookworm
+  script:
+    - go build ./...
+    - go test ./... -count=1 -timeout 120s
+    - go build -o pan-agent ./cmd/pan-agent
+    - ./pan-agent version
+  artifacts:
+    paths:
+      - pan-agent
+    expire_in: 7 days
+
+test:desktop:
+  stage: test
+  image: node:22-bookworm
+  script:
+    - cd desktop
+    - npm ci
+    - npx tsc --noEmit
+    - npx vite build
+  artifacts:
+    paths:
+      - desktop/dist/
+    expire_in: 7 days
+
+build:binary:
+  stage: build
+  image: golang:1.23-bookworm
+  needs: [test:go]
+  script:
+    - |
+      VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}
+      go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=$VERSION -X github.com/euraika-labs/pan-agent/internal/version.Commit=$CI_COMMIT_SHORT_SHA" -o pan-agent ./cmd/pan-agent
+    - ./pan-agent version
+  artifacts:
+    paths:
+      - pan-agent
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
