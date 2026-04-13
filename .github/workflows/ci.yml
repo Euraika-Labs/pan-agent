@@ -30,9 +30,13 @@ jobs:
 
       - name: Build
         run: go build ./...
+        env:
+          CGO_CFLAGS: ${{ matrix.os == 'macos-latest' && '-Wno-deprecated-declarations' || '' }}
 
       - name: Test
         run: go test ./... -count=1 -timeout 120s
+        env:
+          CGO_CFLAGS: ${{ matrix.os == 'macos-latest' && '-Wno-deprecated-declarations' || '' }}
 
       - name: Build binary (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -45,6 +49,8 @@ jobs:
       - name: Build binary (macOS)
         if: matrix.os == 'macos-latest'
         run: go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=$(git describe --tags --always) -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD)" -o pan-agent ./cmd/pan-agent
+        env:
+          CGO_CFLAGS: "-Wno-deprecated-declarations"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -125,6 +131,8 @@ jobs:
 
       - name: Build Go sidecar
         run: go build -o desktop/src-tauri/binaries/${{ matrix.settings.go-binary }} ./cmd/pan-agent
+        env:
+          CGO_CFLAGS: ${{ matrix.settings.platform == 'macos-arm' && '-Wno-deprecated-declarations' || '' }}
 
       - name: Install desktop dependencies
         working-directory: desktop

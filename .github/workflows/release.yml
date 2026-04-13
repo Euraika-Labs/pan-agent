@@ -70,6 +70,8 @@ jobs:
 
       - name: Build Go sidecar
         shell: bash
+        env:
+          CGO_CFLAGS: ${{ matrix.settings.platform == 'macos-arm' && '-Wno-deprecated-declarations' || '' }}
         run: |
           go build \
             -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=${{ steps.version.outputs.version }} \
