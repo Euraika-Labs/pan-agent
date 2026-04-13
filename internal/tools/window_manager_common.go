@@ -88,7 +88,3 @@ func (t WindowManagerTool) Execute(_ context.Context, params json.RawMessage) (*
 }
 
 var _ Tool = WindowManagerTool{}
-
-func init() {
-	Register(WindowManagerTool{})
-}

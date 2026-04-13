@@ -177,3 +177,5 @@ func keyboardHotkey(modifiers []string, key string) error {
 	}
 	return nil
 }
+
+func init() { Register(KeyboardTool{}) }

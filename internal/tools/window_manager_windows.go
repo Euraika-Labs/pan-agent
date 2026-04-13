@@ -142,3 +142,5 @@ func wmCloseWindow(title string) (string, error) {
 	procSendMessageW.Call(w.HWND, wmClose, 0, 0)
 	return fmt.Sprintf("sent WM_CLOSE to %q", w.Title), nil
 }
+
+func init() { Register(WindowManagerTool{}) }

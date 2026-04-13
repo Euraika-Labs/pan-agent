@@ -65,7 +65,3 @@ func (t MouseTool) Execute(_ context.Context, params json.RawMessage) (*Result, 
 }
 
 var _ Tool = MouseTool{}
-
-func init() {
-	Register(MouseTool{})
-}

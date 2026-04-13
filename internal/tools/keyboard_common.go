@@ -61,7 +61,3 @@ func (t KeyboardTool) Execute(_ context.Context, params json.RawMessage) (*Resul
 }
 
 var _ Tool = KeyboardTool{}
-
-func init() {
-	Register(KeyboardTool{})
-}

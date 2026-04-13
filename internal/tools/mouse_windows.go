@@ -84,3 +84,5 @@ func mouseRightClick(x, y int32) error {
 func mouseScroll(x, y, delta int32) error {
 	return sendMouseEvent(mouseeventfWheel, x, y, uint32(delta))
 }
+
+func init() { Register(MouseTool{}) }
