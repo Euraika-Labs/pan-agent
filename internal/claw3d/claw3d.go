@@ -1,4 +1,4 @@
-// Package claw3d manages the lifecycle of the hermes-office (Claw3D) Node.js
+// Package claw3d manages the lifecycle of the Claw3D (pan-office) Node.js
 // application: cloning the repo, installing dependencies, and running the dev
 // server and adapter processes.
 package claw3d
@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	repoURL        = "https://github.com/fathah/hermes-office"
-	defaultPort    = 3000
-	defaultWsURL   = "ws://localhost:18789"
+	repoURL     = "https://github.com/fathah/hermes-office" // upstream Claw3D repo
+	defaultPort = 3000
+	defaultWsURL = "ws://localhost:18789"
 )
 
 // file name constants — stored inside AgentHome, not the repo dir.

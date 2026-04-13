@@ -102,10 +102,10 @@ const SLASH_COMMANDS: SlashCommand[] = [
   },
   { name: "/memory", description: "Show agent memory", category: "info" },
   { name: "/persona", description: "Show current persona", category: "info" },
-  { name: "/version", description: "Show Hermes version", category: "info" },
+  { name: "/version", description: "Show agent version", category: "info" },
 ];
 
-function HermesAvatar({ size = 30 }: { size?: number }): React.JSX.Element {
+function AgentAvatar({ size = 30 }: { size?: number }): React.JSX.Element {
   return (
     <div className="chat-avatar chat-avatar-agent">
       <img src={icon} width={size} height={size} alt="" />
@@ -138,7 +138,7 @@ const MessageRow = memo(function MessageRow({
       {msg.role === "user" ? (
         <div className="chat-avatar chat-avatar-user">U</div>
       ) : (
-        <HermesAvatar />
+        <AgentAvatar />
       )}
       <div className={`chat-bubble chat-bubble-${msg.role}`}>
         {msg.role === "agent" ? (
@@ -230,7 +230,7 @@ function Chat({
 }: ChatProps): React.JSX.Element {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [hermesSessionId, setHermesSessionId] = useState<string | null>(null);
+  const [agentSessionId, setAgentSessionId] = useState<string | null>(null);
   const [toolProgress, setToolProgress] = useState<string | null>(null);
   const [approvalRequest, setApprovalRequest] =
     useState<ApprovalRequest | null>(null);
@@ -322,10 +322,10 @@ function Chat({
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Reset hermes session when messages are cleared (new chat)
+  // Reset agent session when messages are cleared (new chat)
   useEffect(() => {
     if (messages.length === 0) {
-      setHermesSessionId(null);
+      setAgentSessionId(null);
     }
   }, [messages]);
 
@@ -560,7 +560,7 @@ function Chat({
           }
         } else if (type === "done") {
           const sid = evt.session_id as string | undefined;
-          if (sid) setHermesSessionId(sid);
+          if (sid) setAgentSessionId(sid);
           setToolProgress(null);
           setIsLoading(false);
           abortStreamRef.current = null;
@@ -623,7 +623,7 @@ function Chat({
     sendToBackend(
       text,
       messages.map((m) => ({ role: m.role, content: m.content })),
-      hermesSessionId || undefined,
+      agentSessionId || undefined,
     );
   }
 
@@ -642,7 +642,7 @@ function Chat({
     sendToBackend(
       `/btw ${text}`,
       messages.map((m) => ({ role: m.role, content: m.content })),
-      hermesSessionId || undefined,
+      agentSessionId || undefined,
     );
   }
 
@@ -899,7 +899,7 @@ function Chat({
       setIsLoading(false);
     }
     setMessages([]);
-    setHermesSessionId(null);
+    setAgentSessionId(null);
     setUsage(null);
     setToolProgress(null);
   }
@@ -912,8 +912,8 @@ function Chat({
       { id: `user-approve-${Date.now()}`, role: "user", content: "/approve" },
     ]);
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
-    sendToBackend("/approve", history, hermesSessionId || undefined);
-  }, [hermesSessionId, setMessages, messages]);
+    sendToBackend("/approve", history, agentSessionId || undefined);
+  }, [agentSessionId, setMessages, messages]);
 
   const handleDeny = useCallback(() => {
     setInput("");
@@ -923,8 +923,8 @@ function Chat({
       { id: `user-deny-${Date.now()}`, role: "user", content: "/deny" },
     ]);
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
-    sendToBackend("/deny", history, hermesSessionId || undefined);
-  }, [hermesSessionId, setMessages, messages]);
+    sendToBackend("/deny", history, agentSessionId || undefined);
+  }, [agentSessionId, setMessages, messages]);
 
   const visibleMessages = useMemo(
     () => messages.filter((m) => m.content.trim()),
@@ -1076,7 +1076,7 @@ function Chat({
 
         {isLoading && !lastMessageIsAgent && (
           <div className="chat-message chat-message-agent">
-            <HermesAvatar />
+            <AgentAvatar />
             <div className="chat-bubble chat-bubble-agent">
               {toolProgress ? (
                 <div className="chat-tool-progress">{toolProgress}</div>
@@ -1144,7 +1144,7 @@ function Chat({
             </button>
           ) : (
             <>
-              {input.trim() && hermesSessionId && (
+              {input.trim() && agentSessionId && (
                 <button
                   className="chat-btw-btn"
                   onClick={handleQuickAsk}
