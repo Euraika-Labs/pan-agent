@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, "feature/**"]
   pull_request:
     branches: [main, develop]
 
@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "stable"
 
       - name: Build
         run: go build ./...
@@ -34,16 +34,23 @@ jobs:
       - name: Test
         run: go test ./... -count=1 -timeout 120s
 
-      - name: Build binary
+      - name: Build binary (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=$(git describe --tags --always) -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD)" -o pan-agent ./cmd/pan-agent
+
+      - name: Build binary (Windows)
         if: matrix.os == 'windows-latest'
-        run: go build -o pan-agent.exe ./cmd/pan-agent
+        run: go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=$(git describe --tags --always) -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD)" -o pan-agent.exe ./cmd/pan-agent
+
+      - name: Build binary (macOS)
+        if: matrix.os == 'macos-latest'
+        run: go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=$(git describe --tags --always) -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD)" -o pan-agent ./cmd/pan-agent
 
       - name: Upload binary
-        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: pan-agent-windows
-          path: pan-agent.exe
+          name: pan-agent-${{ matrix.os }}
+          path: pan-agent*
           retention-days: 30
 
   desktop:
@@ -69,3 +76,56 @@ jobs:
 
       - name: Build
         run: npx vite build
+
+  tauri:
+    name: Tauri (${{ matrix.os }})
+    needs: [go, desktop]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Go binary
+        run: go build -o desktop/src-tauri/binaries/pan-agent-x86_64-pc-windows-msvc.exe ./cmd/pan-agent
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Tauri app
+        working-directory: desktop
+        run: npx tauri build
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: pan-desktop-windows-setup
+          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload MSI installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: pan-desktop-windows-msi
+          path: desktop/src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 30
+          if-no-files-found: warn

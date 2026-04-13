@@ -1,0 +1,2 @@
+# Sidecar binaries are built by CI and placed here.
+# Do not commit binaries to git.
