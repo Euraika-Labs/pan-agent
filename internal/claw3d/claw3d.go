@@ -237,7 +237,7 @@ func writeEnv(repoDir string) {
 		fmt.Sprintf("NEXT_PUBLIC_GATEWAY_URL=%s", wsURL),
 		fmt.Sprintf("CLAW3D_GATEWAY_URL=%s", wsURL),
 		"CLAW3D_GATEWAY_TOKEN=",
-		"HERMES_ADAPTER_PORT=18789",
+		"ADAPTER_PORT=18789",
 		"PAN_MODEL=pan",
 		"PAN_AGENT_NAME=Pan",
 		"",
