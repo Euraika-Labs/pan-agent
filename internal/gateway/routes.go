@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -667,15 +669,79 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGatewayStart(w http.ResponseWriter, _ *http.Request) {
 	s.gatewayMu.Lock()
-	s.gatewayRunning = true
-	s.gatewayMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	defer s.gatewayMu.Unlock()
+
+	if s.gatewayRunning {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already running"})
+		return
+	}
+	if s.botCancels == nil {
+		s.botCancels = make(map[string]context.CancelFunc)
+	}
+
+	env, _ := config.ReadProfileEnv(s.profile)
+	enabled := config.GetPlatformEnabled(s.profile)
+	var started []string
+
+	// Telegram
+	if enabled["telegram"] {
+		token := env["TELEGRAM_BOT_TOKEN"]
+		if token != "" {
+			cancel, err := s.startTelegram(token, env["TELEGRAM_ALLOWED_USERS"])
+			if err != nil {
+				log.Printf("[gateway] telegram start error: %v", err)
+			} else {
+				s.botCancels["telegram"] = cancel
+				started = append(started, "telegram")
+			}
+		}
+	}
+
+	// Discord
+	if enabled["discord"] {
+		token := env["DISCORD_BOT_TOKEN"]
+		if token != "" {
+			cancel, err := s.startDiscord(token)
+			if err != nil {
+				log.Printf("[gateway] discord start error: %v", err)
+			} else {
+				s.botCancels["discord"] = cancel
+				started = append(started, "discord")
+			}
+		}
+	}
+
+	// Slack
+	if enabled["slack"] {
+		botToken := env["SLACK_BOT_TOKEN"]
+		appToken := env["SLACK_APP_TOKEN"]
+		if botToken != "" {
+			cancel, err := s.startSlack(botToken, appToken)
+			if err != nil {
+				log.Printf("[gateway] slack start error: %v", err)
+			} else {
+				s.botCancels["slack"] = cancel
+				started = append(started, "slack")
+			}
+		}
+	}
+
+	s.gatewayRunning = len(s.botCancels) > 0
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "ok",
+		"started": started,
+	})
 }
 
 func (s *Server) handleGatewayStop(w http.ResponseWriter, _ *http.Request) {
 	s.gatewayMu.Lock()
+	defer s.gatewayMu.Unlock()
+
+	for platform, cancel := range s.botCancels {
+		cancel()
+		delete(s.botCancels, platform)
+	}
 	s.gatewayRunning = false
-	s.gatewayMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

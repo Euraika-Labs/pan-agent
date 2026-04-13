@@ -42,9 +42,10 @@ type Server struct {
 
 	httpServer *http.Server
 
-	// gatewayMu guards gatewayRunning for concurrent access.
+	// gatewayMu guards gatewayRunning and botCancels for concurrent access.
 	gatewayMu      sync.RWMutex
 	gatewayRunning bool
+	botCancels     map[string]context.CancelFunc // platform → cancel
 }
 
 // getLLMClient returns the current LLM client under a read lock.

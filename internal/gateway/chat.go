@@ -398,6 +398,83 @@ func flush(w http.ResponseWriter) {
 // Helpers
 // =============================================================================
 
+// runAgentLoop runs the LLM agent loop and returns the final assistant response.
+// This is the non-HTTP version used by messaging bots. Tool calls that require
+// approval are auto-approved (bots have no interactive approval UI).
+func (s *Server) runAgentLoop(ctx context.Context, sessionID string, userMessage string) (string, error) {
+	client := s.getLLMClient()
+	if client == nil {
+		return "", fmt.Errorf("no LLM client configured")
+	}
+
+	// Persist the user message.
+	_ = s.db.AddMessage(sessionID, "user", userMessage)
+
+	// Build messages with persona.
+	systemPrompt, _ := persona.Read(s.profile)
+	msgs := buildMessages(systemPrompt, []llm.Message{
+		{Role: "user", Content: userMessage},
+	})
+
+	const maxTurns = 20
+	var finalContent string
+
+	for turn := 0; turn < maxTurns; turn++ {
+		ch, err := client.ChatStream(ctx, msgs, nil)
+		if err != nil {
+			return "", fmt.Errorf("LLM error: %w", err)
+		}
+
+		var assistantContent string
+		var toolCalls []llm.ToolCall
+
+		for ev := range ch {
+			switch ev.Type {
+			case "chunk":
+				assistantContent += ev.Content
+			case "tool_call":
+				if ev.ToolCall != nil {
+					toolCalls = append(toolCalls, *ev.ToolCall)
+				}
+			case "error":
+				return "", fmt.Errorf("LLM error: %s", ev.Error)
+			}
+		}
+
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
+		msgs = append(msgs, llm.Message{
+			Role:      "assistant",
+			Content:   assistantContent,
+			ToolCalls: toolCalls,
+		})
+
+		if assistantContent != "" {
+			finalContent = assistantContent
+			_ = s.db.AddMessage(sessionID, "assistant", assistantContent)
+		}
+
+		if len(toolCalls) == 0 {
+			break
+		}
+
+		// Execute tool calls (auto-approve for bots — skip approval gate).
+		for _, tc := range toolCalls {
+			result := s.dispatchTool(ctx, tc)
+			msgs = append(msgs, llm.Message{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: tc.ID,
+				Name:       tc.Function.Name,
+			})
+		}
+	}
+
+	return finalContent, nil
+}
+
 // buildMessages prepends a system prompt (if non-empty) to msgs.
 // The original slice is not modified.
 func buildMessages(systemPrompt string, msgs []llm.Message) []llm.Message {
