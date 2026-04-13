@@ -23,12 +23,21 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:8642; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Euraika-Labs/pan-agent/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI0RUE3NUI4RkI5NzYwNjYKUldSbVlKZjd1SFhxdERoUDBPRzVtVWtHbkNZWDJQNW1UOFlmWlBwdHd2ajZIbFNhclRzY0o5WFEK"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": "v1Compatible",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

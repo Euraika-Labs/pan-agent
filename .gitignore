@@ -12,6 +12,10 @@ desktop/src-tauri/gen/
 desktop/node_modules/
 desktop/dist/
 
+# Signing keys
+*.key
+!*.key.pub
+
 # OS
 .DS_Store
 Thumbs.db
