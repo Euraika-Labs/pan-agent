@@ -1,7 +1,12 @@
 # Pan-Agent CI — GitLab
 #
 # Go test + build on Linux. Windows builds run on GitHub Actions
-# (self-hosted Tauri build requires Rust + Node + Go toolchain).
+# (Tauri build requires Rust + Node + Go toolchain).
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+  - template: Jobs/License-Scanning.gitlab-ci.yml
 
 stages:
   - test
