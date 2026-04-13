@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/approval"
@@ -31,11 +32,24 @@ type Server struct {
 	db        *storage.DB
 	approvals *approval.Store
 
+	// llmMu guards llmClient for concurrent reads and writes.
+	llmMu sync.RWMutex
+
 	// llmClient is the active LLM client, derived from the stored model config.
 	// It may be nil if no model has been configured yet.
+	// All access must go through getLLMClient() or hold llmMu.
 	llmClient *llm.Client
 
 	httpServer *http.Server
+}
+
+// getLLMClient returns the current LLM client under a read lock.
+// The returned pointer must not be stored long-term; callers should call this
+// each time they need the client to pick up any concurrent updates.
+func (s *Server) getLLMClient() *llm.Client {
+	s.llmMu.RLock()
+	defer s.llmMu.RUnlock()
+	return s.llmClient
 }
 
 // New creates a Server that will listen on addr (e.g. "127.0.0.1:8642").

@@ -49,7 +49,10 @@ func acquirePage(ctx context.Context) (*rod.Page, error) {
 			return nil, fmt.Errorf("browser: launch chromium: %w", err)
 		}
 
-		b := rod.New().ControlURL(u).MustConnect()
+		b := rod.New().ControlURL(u)
+		if err := b.Connect(); err != nil {
+			return nil, fmt.Errorf("browser: connect: %w", err)
+		}
 
 		sharedBrowser = b
 	}
@@ -128,7 +131,7 @@ func (b *browserTool) Execute(ctx context.Context, raw json.RawMessage) (*Result
 	opCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	page, err := acquirePage(ctx)
+	page, err := acquirePage(opCtx)
 	if err != nil {
 		return &Result{Error: err.Error()}, nil
 	}

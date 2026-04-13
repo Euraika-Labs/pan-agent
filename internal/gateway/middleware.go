@@ -6,15 +6,25 @@ import (
 	"time"
 )
 
+// allowedOrigins is the set of origins permitted to call the gateway.
+// Vite dev server and the Tauri app shell are the only expected callers.
+var allowedOrigins = map[string]bool{
+	"http://localhost:5173": true,
+	"tauri://localhost":     true,
+}
+
 // withMiddleware wraps handler with CORS headers and request logging.
 // It is applied once at server construction so every route benefits.
 func withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// ---------------------------------------------------------------
-		// CORS — allow all origins for local desktop development.
-		// The gateway only binds to 127.0.0.1 so this is safe.
+		// CORS — only allow the Vite dev server and the Tauri app shell.
 		// ---------------------------------------------------------------
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-ID")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Type")

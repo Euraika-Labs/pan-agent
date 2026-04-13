@@ -121,7 +121,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	flush(w)
 
 	// -------------------------------------------------------- LLM client
-	client := s.llmClient
+	client := s.getLLMClient()
 	if req.Model != "" && client != nil {
 		// Create a one-off client for the requested model using the same base URL.
 		client = llm.NewClient(client.BaseURL, client.APIKey, req.Model)
@@ -149,6 +149,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	registerAbort(sessionID, cancel)
 	defer unregisterAbort(sessionID)
+
+	// -------------------------------------------------------- persist user messages
+	// Store the user's messages before the agent loop so they are in the DB
+	// even if the loop is aborted or the connection drops mid-generation.
+	for _, m := range req.Messages {
+		if m.Role == "user" {
+			if err := s.db.AddMessage(sessionID, "user", m.Content); err != nil {
+				log.Printf("[chat] AddMessage error: %v", err)
+			}
+		}
+	}
 
 	// ------------------------------------------- persona system prompt
 	systemPrompt, err := persona.Read(s.profile)
@@ -258,16 +269,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		// Loop: re-call LLM with the tool results appended.
-	}
-
-	// ----------------------------------------------------------- persist user messages
-	// Persist original user messages (they were not stored above).
-	for _, m := range req.Messages {
-		if m.Role == "user" {
-			if err := s.db.AddMessage(sessionID, "user", m.Content); err != nil {
-				log.Printf("[chat] AddMessage error: %v", err)
-			}
-		}
 	}
 
 	// ---------------------------------------------------------------- done

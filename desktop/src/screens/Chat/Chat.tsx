@@ -224,7 +224,7 @@ function Chat({
   messages,
   setMessages,
   sessionId,
-  profile,
+  profile: _profile,
   onSessionStarted,
   onNewChat,
 }: ChatProps): React.JSX.Element {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -182,21 +183,14 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 // Model handlers
 // =============================================================================
 
-// handleModelList returns the list of models from the active LLM provider.
-func (s *Server) handleModelList(w http.ResponseWriter, r *http.Request) {
-	if s.llmClient == nil {
-		writeJSON(w, http.StatusOK, []interface{}{})
-		return
-	}
-	models, err := s.llmClient.ListModels(r.Context())
+// handleModelList returns the local model library.
+func (s *Server) handleModelList(w http.ResponseWriter, _ *http.Request) {
+	list, err := models.List()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if models == nil {
-		models = []llm.ModelInfo{}
-	}
-	writeJSON(w, http.StatusOK, models)
+	writeJSON(w, http.StatusOK, list)
 }
 
 // handleModelAdd updates the active model configuration.
@@ -215,8 +209,22 @@ func (s *Server) handleModelAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Refresh the in-process LLM client.
-	s.llmClient = llm.NewClient(body.BaseURL, "", body.Model)
+	// Re-read the API key from .env so it is not lost when the client is refreshed.
+	env, _ := config.ReadProfileEnv(s.profile)
+	apiKey := env["REGOLO_API_KEY"]
+	if apiKey == "" {
+		apiKey = env["OPENAI_API_KEY"]
+	}
+	if apiKey == "" {
+		apiKey = env["API_KEY"]
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
+	// Refresh the in-process LLM client under the write lock.
+	s.llmMu.Lock()
+	s.llmClient = llm.NewClient(body.BaseURL, apiKey, body.Model)
+	s.llmMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
