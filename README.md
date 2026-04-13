@@ -106,9 +106,10 @@ OpenAI, Anthropic, Regolo, OpenRouter, Groq, Ollama, LM Studio, vLLM, llama.cpp
 
 | Metric | Value |
 |---|---|
-| Version | 0.1.1 |
+| Version | 0.2.0 |
 | Go test functions | 72 |
 | React screens | 15 |
-| HTTP endpoints | 40 |
+| HTTP endpoints | 43 |
+| Platforms | Windows, macOS, Linux |
 | Approval patterns | 103 |
 | Supported providers | 9 |
