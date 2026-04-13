@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/approval"
@@ -53,7 +54,18 @@ func New(addr string, db *storage.DB, profile string) *Server {
 	// Bootstrap the LLM client from the persisted model config.
 	mc := config.GetModelConfig(profile)
 	if mc.BaseURL != "" && mc.Model != "" {
-		s.llmClient = llm.NewClient(mc.BaseURL, "", mc.Model)
+		env, _ := config.ReadProfileEnv(s.profile)
+		apiKey := env["REGOLO_API_KEY"]
+		if apiKey == "" {
+			apiKey = env["OPENAI_API_KEY"]
+		}
+		if apiKey == "" {
+			apiKey = env["API_KEY"]
+		}
+		if apiKey == "" {
+			apiKey = os.Getenv("OPENAI_API_KEY")
+		}
+		s.llmClient = llm.NewClient(mc.BaseURL, apiKey, mc.Model)
 	}
 
 	mux := http.NewServeMux()

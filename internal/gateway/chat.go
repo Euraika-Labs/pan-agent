@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 
 	"github.com/euraika-labs/pan-agent/internal/approval"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/persona"
+	"github.com/euraika-labs/pan-agent/internal/tools"
 )
 
 // =============================================================================
@@ -221,7 +223,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		// Persist the assistant message.
 		if assistantContent != "" {
-			_ = s.db.AddMessage(sessionID, "assistant", assistantContent)
+			if err := s.db.AddMessage(sessionID, "assistant", assistantContent); err != nil {
+				log.Printf("[chat] AddMessage error: %v", err)
+			}
 		}
 
 		// ------------------------------------------ no tool calls → done
@@ -260,7 +264,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Persist original user messages (they were not stored above).
 	for _, m := range req.Messages {
 		if m.Role == "user" {
-			_ = s.db.AddMessage(sessionID, "user", m.Content)
+			if err := s.db.AddMessage(sessionID, "user", m.Content); err != nil {
+				log.Printf("[chat] AddMessage error: %v", err)
+			}
 		}
 	}
 
@@ -299,11 +305,10 @@ func (s *Server) handleChatAbort(w http.ResponseWriter, r *http.Request) {
 // dangerousTools is the set of tool names that require user approval before
 // execution. This list should grow as more tools are added.
 var dangerousTools = map[string]bool{
-	"shell_exec":      true,
-	"file_write":      true,
-	"file_delete":     true,
-	"process_kill":    true,
-	"network_request": true,
+	"terminal":       true,
+	"filesystem":     true,
+	"code_execution": true,
+	"browser":        true,
 }
 
 // executeToolCall dispatches a single tool call and returns the result string.
@@ -346,15 +351,19 @@ func (s *Server) executeToolCall(
 }
 
 // dispatchTool routes a tool call to the appropriate implementation.
-// TODO: wire up internal/tools and internal/skills once those packages are written.
 func (s *Server) dispatchTool(ctx context.Context, tc llm.ToolCall) string {
-	// TODO: look up tc.Function.Name in the registered tool registry and call it.
-	// For now, return a placeholder so the agent loop continues gracefully.
-	_ = ctx
-	return fmt.Sprintf(
-		`{"error": "tool %q is not yet implemented in pan-agent Go rewrite"}`,
-		tc.Function.Name,
-	)
+	tool, ok := tools.Get(tc.Function.Name)
+	if !ok {
+		return fmt.Sprintf(`{"error": "unknown tool: %s"}`, tc.Function.Name)
+	}
+	result, err := tool.Execute(ctx, json.RawMessage(tc.Function.Arguments))
+	if err != nil {
+		return fmt.Sprintf(`{"error": "tool execution failed: %s"}`, err.Error())
+	}
+	if result.Error != "" {
+		return fmt.Sprintf(`{"error": %q, "output": %q}`, result.Error, result.Output)
+	}
+	return result.Output
 }
 
 // =============================================================================

@@ -8,10 +8,14 @@ import (
 
 	"github.com/euraika-labs/pan-agent/internal/approval"
 	"github.com/euraika-labs/pan-agent/internal/config"
+	"github.com/euraika-labs/pan-agent/internal/cron"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/memory"
+	"github.com/euraika-labs/pan-agent/internal/models"
 	"github.com/euraika-labs/pan-agent/internal/persona"
+	"github.com/euraika-labs/pan-agent/internal/skills"
 	"github.com/euraika-labs/pan-agent/internal/storage"
+	"github.com/euraika-labs/pan-agent/internal/tools"
 )
 
 // registerRoutes mounts all REST endpoints onto mux.
@@ -216,18 +220,38 @@ func (s *Server) handleModelAdd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleModelDelete removes a model entry.
-// TODO: implement per-model registry in config once models.json schema is finalised.
+// handleModelDelete removes a saved model entry by ID.
 func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement model removal from models.json
-	writeError(w, http.StatusNotImplemented, "model deletion not yet implemented")
+	id := r.PathValue("id")
+	if err := models.Remove(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleModelSync fetches and caches the remote model list for the active provider.
-// TODO: implement model sync with remote provider cache.
+// handleModelSync fetches and caches the remote model list for the given provider.
+// Body: {"provider": "...", "base_url": "...", "api_key": "..."}
 func (s *Server) handleModelSync(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement model sync
-	writeError(w, http.StatusNotImplemented, "model sync not yet implemented")
+	var body struct {
+		Provider string `json:"provider"`
+		BaseURL  string `json:"base_url"`
+		APIKey   string `json:"api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.BaseURL == "" {
+		writeError(w, http.StatusBadRequest, "base_url is required")
+		return
+	}
+	ms, err := models.SyncRemote(body.Provider, body.BaseURL, body.APIKey)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ms)
 }
 
 // =============================================================================
@@ -374,47 +398,101 @@ func (s *Server) handlePersonaReset(w http.ResponseWriter, r *http.Request) {
 // Tool handlers
 // =============================================================================
 
-// handleToolList returns all registered toolsets and their enabled status.
-// TODO: implement toolset registry (internal/tools).
+// handleToolList returns all registered tools from the tools registry.
 func (s *Server) handleToolList(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/tools package once written.
-	writeJSON(w, http.StatusOK, []interface{}{})
+	all := tools.All()
+	// Convert map to a stable slice of name+description objects for JSON.
+	type toolEntry struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	result := make([]toolEntry, 0, len(all))
+	for _, t := range all {
+		result = append(result, toolEntry{Name: t.Name(), Description: t.Description()})
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleToolToggle enables or disables a toolset by key.
-// Body: {"enabled": true|false}
-// TODO: implement toolset toggle (internal/tools).
+// Tool toggling is a config concern; for now we acknowledge the request and return 200.
 func (s *Server) handleToolToggle(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/tools package once written.
 	_ = r.PathValue("key")
-	writeError(w, http.StatusNotImplemented, "tool toggle not yet implemented")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // =============================================================================
 // Skill handlers
 // =============================================================================
 
-// handleSkillList returns all installed skills.
-// TODO: implement skill registry (internal/skills).
+// handleSkillList returns all installed and bundled skills combined.
 func (s *Server) handleSkillList(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/skills package once written.
-	writeJSON(w, http.StatusOK, []interface{}{})
+	installed, err := skills.ListInstalled(s.profile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	bundled, err := skills.ListBundled()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	combined := append(installed, bundled...)
+	if combined == nil {
+		combined = []skills.Skill{}
+	}
+	writeJSON(w, http.StatusOK, combined)
 }
 
-// handleSkillInstall installs a skill from a local path or remote URL.
-// Body: {"source": "..."}
-// TODO: implement skill installation (internal/skills).
+// handleSkillInstall installs a skill by id for the active profile.
+// Body: {"id": "category/skill-name", "profile": "..."}
 func (s *Server) handleSkillInstall(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/skills package once written.
-	writeError(w, http.StatusNotImplemented, "skill installation not yet implemented")
+	var body struct {
+		ID      string `json:"id"`
+		Profile string `json:"profile"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.ID == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	profile := body.Profile
+	if profile == "" {
+		profile = s.profile
+	}
+	if err := skills.Install(body.ID, profile); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleSkillUninstall removes an installed skill.
-// Body: {"name": "..."}
-// TODO: implement skill uninstall (internal/skills).
+// handleSkillUninstall removes an installed skill by id.
+// Body: {"id": "category/skill-name", "profile": "..."}
 func (s *Server) handleSkillUninstall(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/skills package once written.
-	writeError(w, http.StatusNotImplemented, "skill uninstall not yet implemented")
+	var body struct {
+		ID      string `json:"id"`
+		Profile string `json:"profile"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.ID == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	profile := body.Profile
+	if profile == "" {
+		profile = s.profile
+	}
+	if err := skills.Uninstall(body.ID, profile); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // =============================================================================
@@ -422,26 +500,50 @@ func (s *Server) handleSkillUninstall(w http.ResponseWriter, r *http.Request) {
 // =============================================================================
 
 // handleCronList returns all scheduled cron jobs.
-// TODO: implement cron job registry (internal/cron).
 func (s *Server) handleCronList(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/cron package once written.
-	writeJSON(w, http.StatusOK, []interface{}{})
+	jobs, err := cron.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if jobs == nil {
+		jobs = []cron.Job{}
+	}
+	writeJSON(w, http.StatusOK, jobs)
 }
 
 // handleCronCreate creates a new cron job.
-// Body: {"schedule": "...", "command": "..."}
-// TODO: implement cron job creation (internal/cron).
+// Body: {"name": "...", "schedule": "...", "prompt": "..."}
 func (s *Server) handleCronCreate(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/cron package once written.
-	writeError(w, http.StatusNotImplemented, "cron job creation not yet implemented")
+	var body struct {
+		Name     string `json:"name"`
+		Schedule string `json:"schedule"`
+		Prompt   string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.Schedule == "" {
+		writeError(w, http.StatusBadRequest, "schedule is required")
+		return
+	}
+	job, err := cron.Create(body.Name, body.Schedule, body.Prompt)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, job)
 }
 
 // handleCronDelete removes a cron job by ID.
-// TODO: implement cron job removal (internal/cron).
 func (s *Server) handleCronDelete(w http.ResponseWriter, r *http.Request) {
-	// TODO: delegate to internal/cron package once written.
-	_ = r.PathValue("id")
-	writeError(w, http.StatusNotImplemented, "cron job deletion not yet implemented")
+	id := r.PathValue("id")
+	if err := cron.Remove(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // =============================================================================

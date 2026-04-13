@@ -139,7 +139,10 @@ func cmdChat(args []string) error {
 		baseURL = "https://api.openai.com/v1"
 	}
 
-	apiKey := env["OPENAI_API_KEY"]
+	apiKey := env["REGOLO_API_KEY"]
+	if apiKey == "" {
+		apiKey = env["OPENAI_API_KEY"]
+	}
 	if apiKey == "" {
 		apiKey = env["API_KEY"]
 	}
@@ -263,7 +266,10 @@ func cmdDoctor(_ []string) error {
 		paths.EnvFile("default"))
 
 	// 3. API key present
-	apiKey := env["OPENAI_API_KEY"]
+	apiKey := env["REGOLO_API_KEY"]
+	if apiKey == "" {
+		apiKey = env["OPENAI_API_KEY"]
+	}
 	if apiKey == "" {
 		apiKey = env["API_KEY"]
 	}
@@ -272,7 +278,7 @@ func cmdDoctor(_ []string) error {
 	}
 	check("API key present",
 		apiKey != "",
-		"OPENAI_API_KEY or API_KEY")
+		"REGOLO_API_KEY or OPENAI_API_KEY")
 
 	// 4. State DB opens and migrates
 	dbPath := paths.StateDB()

@@ -51,18 +51,6 @@ func acquirePage(ctx context.Context) (*rod.Page, error) {
 
 		b := rod.New().ControlURL(u).MustConnect()
 
-		// Shut the browser down when the provided context is cancelled.
-		go func() {
-			<-ctx.Done()
-			browserMu.Lock()
-			defer browserMu.Unlock()
-			if sharedBrowser != nil {
-				_ = sharedBrowser.Close()
-				sharedBrowser = nil
-				sharedPage = nil
-			}
-		}()
-
 		sharedBrowser = b
 	}
 
