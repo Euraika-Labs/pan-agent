@@ -3,7 +3,6 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -11,13 +10,14 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/claw3d"
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/cron"
-	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/memory"
 	"github.com/euraika-labs/pan-agent/internal/models"
+	"github.com/euraika-labs/pan-agent/internal/paths"
 	"github.com/euraika-labs/pan-agent/internal/persona"
 	"github.com/euraika-labs/pan-agent/internal/skills"
 	"github.com/euraika-labs/pan-agent/internal/storage"
 	"github.com/euraika-labs/pan-agent/internal/tools"
+	"github.com/euraika-labs/pan-agent/internal/version"
 )
 
 // registerRoutes mounts all REST endpoints onto mux.
@@ -75,6 +75,19 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// ----------------------------------------------------------------- health
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+
+	// -------------------------------------------------------------- profiles
+	mux.HandleFunc("GET /v1/config/profiles", s.handleProfileList)
+	mux.HandleFunc("POST /v1/config/profiles", s.handleProfileCreate)
+	mux.HandleFunc("DELETE /v1/config/profiles/{name}", s.handleProfileDelete)
+
+	// ------------------------------------------------------------- doctor
+	mux.HandleFunc("POST /v1/config/doctor", s.handleDoctorRun)
+	mux.HandleFunc("POST /v1/config/update", s.handleUpdateCheck)
+
+	// -------------------------------------------------- gateway start/stop
+	mux.HandleFunc("POST /v1/health/gateway/start", s.handleGatewayStart)
+	mux.HandleFunc("POST /v1/health/gateway/stop", s.handleGatewayStop)
 
 	// ---------------------------------------------------------------- claw3d
 	mux.HandleFunc("GET /v1/claw3d/status", s.handleClaw3dStatus)
@@ -216,22 +229,7 @@ func (s *Server) handleModelAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Re-read the API key from .env so it is not lost when the client is refreshed.
-	env, _ := config.ReadProfileEnv(s.profile)
-	apiKey := env["REGOLO_API_KEY"]
-	if apiKey == "" {
-		apiKey = env["OPENAI_API_KEY"]
-	}
-	if apiKey == "" {
-		apiKey = env["API_KEY"]
-	}
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
-	// Refresh the in-process LLM client under the write lock.
-	s.llmMu.Lock()
-	s.llmClient = llm.NewClient(body.BaseURL, apiKey, body.Model)
-	s.llmMu.Unlock()
+	s.refreshLLMClient(body.BaseURL, body.Model, s.profile)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -273,30 +271,111 @@ func (s *Server) handleModelSync(w http.ResponseWriter, r *http.Request) {
 // Config handlers
 // =============================================================================
 
-// handleConfigGet returns the .env key/value map for the active profile.
+// configResponse is the structured response for GET /v1/config.
+type configResponse struct {
+	Env            map[string]string              `json:"env"`
+	AgentHome      string                         `json:"agentHome"`
+	Model          configModelResponse            `json:"model"`
+	CredentialPool map[string][]config.Credential `json:"credentialPool"`
+	AppVersion     string                         `json:"appVersion"`
+	AgentVersion   *string                        `json:"agentVersion"`
+}
+
+type configModelResponse struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"baseUrl"`
+}
+
+// handleConfigGet returns the full config for the active profile.
 func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
-	env, err := config.ReadProfileEnv(s.profile)
+	profile := s.resolveProfile(r)
+	env, err := config.ReadProfileEnv(profile)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, env)
+	mc := config.GetModelConfig(profile)
+	pool := config.GetCredentialPool()
+
+	resp := configResponse{
+		Env:       env,
+		AgentHome: paths.AgentHome(),
+		Model: configModelResponse{
+			Provider: mc.Provider,
+			Model:    mc.Model,
+			BaseURL:  mc.BaseURL,
+		},
+		CredentialPool: pool,
+		AppVersion:     version.Version,
+		AgentVersion:   nil,
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleConfigPut updates one or more .env key/value pairs.
-// Body: {"KEY": "value", ...}
+// configPutBody is the union of all fields the PUT /v1/config endpoint accepts.
+type configPutBody struct {
+	Profile         string                         `json:"profile,omitempty"`
+	Env             map[string]string              `json:"env,omitempty"`
+	Model           *configModelPut                `json:"model,omitempty"`
+	CredentialPool  map[string][]config.Credential `json:"credentialPool,omitempty"`
+	PlatformEnabled map[string]bool                `json:"platformEnabled,omitempty"`
+}
+
+type configModelPut struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"baseUrl"`
+}
+
+// handleConfigPut updates config for the active profile.
+// Accepts a structured body with optional env, model, credentialPool, and
+// platformEnabled fields.
 func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
-	var updates map[string]string
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+	var body configPutBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	for k, v := range updates {
-		if err := config.SetProfileEnvValue(s.profile, k, v); err != nil {
+
+	profile := body.Profile
+	if profile == "" {
+		profile = s.profile
+	}
+
+	// Update env values.
+	for k, v := range body.Env {
+		if err := config.SetProfileEnvValue(profile, k, v); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
+
+	// Update model config.
+	if body.Model != nil {
+		if err := config.SetModelConfig(body.Model.Provider, body.Model.Model, body.Model.BaseURL, profile); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.refreshLLMClient(body.Model.BaseURL, body.Model.Model, profile)
+	}
+
+	// Update credential pool.
+	for provider, creds := range body.CredentialPool {
+		if err := config.SetCredentialPool(provider, creds); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// Update platform toggles.
+	for platform, enabled := range body.PlatformEnabled {
+		if err := config.SetPlatformEnabled(platform, enabled, profile); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -565,8 +644,101 @@ func (s *Server) handleCronDelete(w http.ResponseWriter, r *http.Request) {
 // Health handler
 // =============================================================================
 
+type healthResponse struct {
+	Gateway         bool              `json:"gateway"`
+	Env             map[string]string `json:"env"`
+	PlatformEnabled map[string]bool   `json:"platformEnabled"`
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	profile := s.resolveProfile(r)
+	env, _ := config.ReadProfileEnv(profile)
+	resp := healthResponse{
+		Gateway:         s.isGatewayRunning(),
+		Env:             env,
+		PlatformEnabled: config.GetPlatformEnabled(profile),
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// =============================================================================
+// Gateway start/stop handlers
+// =============================================================================
+
+func (s *Server) handleGatewayStart(w http.ResponseWriter, _ *http.Request) {
+	s.gatewayMu.Lock()
+	s.gatewayRunning = true
+	s.gatewayMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleGatewayStop(w http.ResponseWriter, _ *http.Request) {
+	s.gatewayMu.Lock()
+	s.gatewayRunning = false
+	s.gatewayMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// =============================================================================
+// Profile handlers
+// =============================================================================
+
+func (s *Server) handleProfileList(w http.ResponseWriter, _ *http.Request) {
+	profiles := config.ListProfiles(s.profile)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"profiles": profiles,
+	})
+}
+
+func (s *Server) handleProfileCreate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name        string `json:"name"`
+		CloneConfig bool   `json:"cloneConfig"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	cloneFrom := ""
+	if body.CloneConfig {
+		cloneFrom = s.profile
+	}
+	if err := config.CreateProfile(body.Name, cloneFrom); err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Server) handleProfileDelete(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := config.DeleteProfile(name); err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// =============================================================================
+// Doctor / update handlers
+// =============================================================================
+
+func (s *Server) handleDoctorRun(w http.ResponseWriter, _ *http.Request) {
+	output := config.RunDoctor(s.profile)
+	writeJSON(w, http.StatusOK, map[string]string{"output": output})
+}
+
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"available": false,
+		"current":   version.Version,
+	})
 }
 
 // =============================================================================

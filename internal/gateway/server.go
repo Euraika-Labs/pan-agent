@@ -41,6 +41,10 @@ type Server struct {
 	llmClient *llm.Client
 
 	httpServer *http.Server
+
+	// gatewayMu guards gatewayRunning for concurrent access.
+	gatewayMu      sync.RWMutex
+	gatewayRunning bool
 }
 
 // getLLMClient returns the current LLM client under a read lock.
@@ -68,18 +72,7 @@ func New(addr string, db *storage.DB, profile string) *Server {
 	// Bootstrap the LLM client from the persisted model config.
 	mc := config.GetModelConfig(profile)
 	if mc.BaseURL != "" && mc.Model != "" {
-		env, _ := config.ReadProfileEnv(s.profile)
-		apiKey := env["REGOLO_API_KEY"]
-		if apiKey == "" {
-			apiKey = env["OPENAI_API_KEY"]
-		}
-		if apiKey == "" {
-			apiKey = env["API_KEY"]
-		}
-		if apiKey == "" {
-			apiKey = os.Getenv("OPENAI_API_KEY")
-		}
-		s.llmClient = llm.NewClient(mc.BaseURL, apiKey, mc.Model)
+		s.refreshLLMClient(mc.BaseURL, mc.Model, s.profile)
 	}
 
 	mux := http.NewServeMux()
@@ -114,4 +107,39 @@ func (s *Server) Start() error {
 // finish or until ctx is cancelled, whichever comes first.
 func (s *Server) Stop(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
+}
+
+// isGatewayRunning returns the current messaging gateway state.
+func (s *Server) isGatewayRunning() bool {
+	s.gatewayMu.RLock()
+	defer s.gatewayMu.RUnlock()
+	return s.gatewayRunning
+}
+
+// resolveProfile returns the profile from the ?profile= query param, falling
+// back to the server's default profile.
+func (s *Server) resolveProfile(r *http.Request) string {
+	if p := r.URL.Query().Get("profile"); p != "" {
+		return p
+	}
+	return s.profile
+}
+
+// refreshLLMClient rebuilds the in-process LLM client from the given model
+// config and the profile's .env file. It acquires llmMu for the swap.
+func (s *Server) refreshLLMClient(baseURL, model, profile string) {
+	env, _ := config.ReadProfileEnv(profile)
+	apiKey := env["REGOLO_API_KEY"]
+	if apiKey == "" {
+		apiKey = env["OPENAI_API_KEY"]
+	}
+	if apiKey == "" {
+		apiKey = env["API_KEY"]
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
+	s.llmMu.Lock()
+	s.llmClient = llm.NewClient(baseURL, apiKey, model)
+	s.llmMu.Unlock()
 }

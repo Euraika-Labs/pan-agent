@@ -31,7 +31,7 @@ func setupTestServer(t *testing.T) *Server {
 	return srv
 }
 
-// TestHealthEndpoint verifies GET /v1/health returns {"status":"ok"}.
+// TestHealthEndpoint verifies GET /v1/health returns the structured health response.
 func TestHealthEndpoint(t *testing.T) {
 	srv := setupTestServer(t)
 	mux := http.NewServeMux()
@@ -44,10 +44,15 @@ func TestHealthEndpoint(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("health: got %d, want 200", w.Code)
 	}
-	var body map[string]string
-	json.NewDecoder(w.Body).Decode(&body)
-	if body["status"] != "ok" {
-		t.Fatalf("health: got %q, want ok", body["status"])
+	var body struct {
+		Gateway         bool            `json:"gateway"`
+		PlatformEnabled map[string]bool `json:"platformEnabled"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("health: decode: %v", err)
+	}
+	if body.Gateway {
+		t.Errorf("health: gateway should be false initially")
 	}
 }
 
@@ -94,7 +99,7 @@ func TestPersonaEndpoints(t *testing.T) {
 	}
 
 	// PUT updates persona
-	body := `{"content":"You are Pan-Agent, a helpful AI."}`
+	body := `{"persona":"You are Pan-Agent, a helpful AI."}`
 	req = httptest.NewRequest("PUT", "/v1/persona", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()

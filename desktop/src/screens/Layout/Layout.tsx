@@ -3,6 +3,7 @@ import Chat, { type ChatMessage } from "../Chat/Chat";
 import Sessions from "../Sessions/Sessions";
 import Profiles from "../Profiles/Profiles";
 import Settings from "../Settings/Settings";
+import Setup from "../Setup/Setup";
 import Skills from "../Skills/Skills";
 import Soul from "../Soul/Soul";
 import Memory from "../Memory/Memory";
@@ -69,6 +70,8 @@ function Layout(): React.JSX.Element {
   const [activeProfile, setActiveProfile] = useState("default");
   // Lazy mount Office — only render after first visit, then keep mounted
   const [officeVisited, setOfficeVisited] = useState(false);
+  // First-run onboarding: null = checking, true = show setup, false = ready
+  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
 
   const handleNewChat = useCallback(() => {
     setMessages([]);
@@ -90,7 +93,7 @@ function Layout(): React.JSX.Element {
         content: string;
       }
       const dbMessages = await fetchJSON<DbMessage[]>(
-        `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+        `/v1/sessions/${encodeURIComponent(sessionId)}`,
       );
       const chatMessages: ChatMessage[] = dbMessages.map((m) => ({
         id: `db-${m.id}`,
@@ -103,6 +106,35 @@ function Layout(): React.JSX.Element {
     } catch (err) {
       console.error("[Layout] resumeSession error:", err);
     }
+  }, []);
+
+  // First-run detection: check if any LLM provider is configured
+  useEffect(() => {
+    let cancelled = false;
+    async function checkFirstRun(attempt = 0) {
+      try {
+        const cfg = await fetchJSON<{
+          env: Record<string, string>;
+          model: { provider: string; model: string; baseUrl: string };
+        }>("/v1/config");
+        if (cancelled) return;
+
+        const hasKey = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "REGOLO_API_KEY"]
+          .some((k) => cfg.env[k]?.trim());
+        const hasCustomUrl = cfg.model.baseUrl && cfg.model.provider === "custom";
+
+        setSetupRequired(!hasKey && !hasCustomUrl);
+      } catch {
+        if (cancelled) return;
+        if (attempt < 5) {
+          setTimeout(() => checkFirstRun(attempt + 1), Math.min(1000 * 2 ** attempt, 8000));
+        } else {
+          setSetupRequired(false); // give up checking, show app
+        }
+      }
+    }
+    checkFirstRun();
+    return () => { cancelled = true; };
   }, []);
 
   // Keyboard shortcut: Ctrl/Cmd+N → new chat
@@ -120,6 +152,16 @@ function Layout(): React.JSX.Element {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleNewChat]);
+
+  // Show nothing while checking first-run status
+  if (setupRequired === null) {
+    return <div className="setup-screen" />;
+  }
+
+  // Show onboarding wizard if no provider is configured
+  if (setupRequired) {
+    return <Setup onComplete={() => setSetupRequired(false)} />;
+  }
 
   return (
     <div className="layout">
