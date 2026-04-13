@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	repoURL     = "https://github.com/fathah/hermes-office" // upstream Claw3D repo
+	repoURL     = "https://github.com/Euraika-Labs/pan-office" // our fork of Claw3D
 	defaultPort = 3000
 	defaultWsURL = "ws://localhost:18789"
 )
