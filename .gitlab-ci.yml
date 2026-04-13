@@ -22,7 +22,7 @@ workflow:
 
 test:go:
   stage: test
-  image: golang:1.23-bookworm
+  image: golang:latest
   script:
     - go build ./...
     - go test ./... -count=1 -timeout 120s
@@ -48,7 +48,7 @@ test:desktop:
 
 build:binary:
   stage: build
-  image: golang:1.23-bookworm
+  image: golang:latest
   needs: [test:go]
   script:
     - |
