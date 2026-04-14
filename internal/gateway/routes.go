@@ -1164,11 +1164,12 @@ func (s *Server) handleOfficeStop(w http.ResponseWriter, _ *http.Request) {
 	writeOK(w)
 }
 
-// handleOfficeLogs returns recent log lines from the office engine.
-// Stub: currently returns an empty log payload; replace once claw3d exposes
-// a log ring-buffer. Keeps the UI's Office screen from 404-ing.
+// handleOfficeLogs returns recent log lines from the office engine. The
+// claw3d package buffers stdout/stderr from both the dev server and the
+// adapter into an in-process ring so silent failures (port collisions,
+// missing deps) surface here instead of the void.
 func (s *Server) handleOfficeLogs(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"logs": ""})
+	writeJSON(w, http.StatusOK, map[string]string{"logs": claw3d.GetLogs()})
 }
 
 // handleOfficeConfig returns the office engine's effective config.

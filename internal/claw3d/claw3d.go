@@ -17,9 +17,15 @@ import (
 )
 
 const (
-	repoURL      = "https://github.com/Euraika-Labs/pan-office" // our fork of Claw3D
-	defaultPort  = 3000
-	defaultWsURL = "ws://localhost:18789"
+	repoURL     = "https://github.com/Euraika-Labs/pan-office" // our fork of Claw3D
+	defaultPort = 3000
+	// 48789 chosen over the original 18789 because on many Windows
+	// installs svchost reserves 18789 on 0.0.0.0 (silent port squatter
+	// for a Windows Service that may never actually run) — the adapter
+	// then exits without an error message, leaving the Office screen
+	// stuck in "dev server up, adapter down". 48789 is in the IANA
+	// dynamic range and has no standard reservation.
+	defaultWsURL = "ws://localhost:48789"
 )
 
 // file name constants — stored inside AgentHome, not the repo dir.
@@ -236,7 +242,8 @@ func writeEnv(repoDir string) {
 		fmt.Sprintf("NEXT_PUBLIC_GATEWAY_URL=%s", wsURL),
 		fmt.Sprintf("CLAW3D_GATEWAY_URL=%s", wsURL),
 		"CLAW3D_GATEWAY_TOKEN=",
-		"ADAPTER_PORT=18789",
+		// pan-office's adapter reads HERMES_ADAPTER_PORT (not ADAPTER_PORT).
+		"HERMES_ADAPTER_PORT=48789",
 		"PAN_MODEL=pan",
 		"PAN_AGENT_NAME=Pan",
 		"",
@@ -275,6 +282,10 @@ func StartDevServer() error {
 	cmd := exec.Command(npm, "run", "dev")
 	cmd.Dir = repoDir
 	cmd.Env = env
+	// Pipe output into the shared ring so /v1/office/logs has content
+	// to show. Same pattern as StartAdapter.
+	cmd.Stdout = &logWriter{prefix: "dev"}
+	cmd.Stderr = &logWriter{prefix: "dev!"}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("claw3d: start dev server: %w", err)
@@ -346,7 +357,19 @@ func StartAdapter() error {
 
 	cmd := exec.Command(npm, "run", "hermes-adapter")
 	cmd.Dir = repoDir
-	cmd.Env = append(os.Environ(), "TERM=dumb")
+	cmd.Env = append(os.Environ(),
+		"TERM=dumb",
+		// pan-office's adapter reads HERMES_ADAPTER_PORT (see
+		// server/hermes-gateway-adapter.js line 61 — ADAPTER_PORT is not
+		// read). 48789 is chosen because svchost reserves 18789 on 0.0.0.0
+		// on many Windows installs.
+		"HERMES_ADAPTER_PORT=48789",
+	)
+	// Capture adapter stderr into the shared log ring so GET /v1/office/logs
+	// can surface failure reasons (port-bind errors etc). Without this the
+	// adapter used to silently exit on port collisions.
+	cmd.Stdout = &logWriter{prefix: "adapter"}
+	cmd.Stderr = &logWriter{prefix: "adapter!"}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("claw3d: start adapter: %w", err)
