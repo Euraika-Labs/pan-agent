@@ -164,8 +164,8 @@ func TestIsSecretEnvKey(t *testing.T) {
 		"SLACK_BOT_TOKEN",
 		"CLIENT_SECRET",
 		"DB_PASSWORD",
-		"API_KEY",              // bare
-		"AWS_ACCESS_KEY_ID",    // AWS pattern
+		"API_KEY",           // bare
+		"AWS_ACCESS_KEY_ID", // AWS pattern
 		"AWS_SECRET_ACCESS_KEY",
 		"GCP_PRIVATE_KEY",
 		"CUSTOMER_API_KEY_PROD", // prefixed + suffixed

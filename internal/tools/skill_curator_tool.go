@@ -64,7 +64,7 @@ func (SkillCuratorTool) Parameters() json.RawMessage {
 type skillCuratorParams struct {
 	Action       string          `json:"action"`
 	SkillID      string          `json:"skill_id"`
-	SkillIDs     json.RawMessage `json:"skill_ids"`  // array or JSON-stringified array
+	SkillIDs     json.RawMessage `json:"skill_ids"` // array or JSON-stringified array
 	NewContent   string          `json:"new_content"`
 	Consolidated string          `json:"consolidated"`
 	NewCategory  string          `json:"new_category"`

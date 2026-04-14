@@ -417,8 +417,8 @@ func isSecretEnvKey(name string) bool {
 		"POSTGRES_URL",
 		"MONGO_URI",
 		"SMTP_URL",
-		"DSN",      // SENTRY_DSN etc — DSNs embed auth
-		"WEBHOOK",  // Slack/Discord/GitHub webhook URLs are bearer-equivalent
+		"DSN",     // SENTRY_DSN etc — DSNs embed auth
+		"WEBHOOK", // Slack/Discord/GitHub webhook URLs are bearer-equivalent
 		"JWT",
 		"BEARER",
 		"COOKIE",
