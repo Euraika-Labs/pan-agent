@@ -24,6 +24,7 @@ Read it user-first: Pan-Agent is a single-binary AI desktop agent with full PC c
 - [[06 - Storage Layer]]
 - [[07 - Profile System]]
 - [[08 - Messaging Gateway Bots]]
+- [[09 - Self-Healing Skill System]]
 
 ## Part III — Operations and Runbooks
 - [[01 - Installation and First Run]]

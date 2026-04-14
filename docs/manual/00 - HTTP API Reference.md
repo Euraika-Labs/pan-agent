@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-Complete catalog of all 43 endpoints exposed by the Pan-Agent backend.
+Complete catalog of all 50 endpoints exposed by the Pan-Agent backend.
 
 ## Conventions
 
@@ -72,7 +72,7 @@ Returns:
   "agentHome": "...",
   "model": {"provider": "...", "model": "...", "baseUrl": "..."},
   "credentialPool": {...},
-  "appVersion": "0.2.0",
+  "appVersion": "0.3.1",
   "agentVersion": null
 }
 ```
@@ -125,7 +125,7 @@ Delete a profile. Cannot delete "default". Returns `{"success": true}` or error.
 Run health checks. Returns `{"output": "pan-agent doctor\n----------------\n  [OK] ..."}`.
 
 ### POST /v1/config/update
-Check for updates. Returns `{"available": false, "current": "0.2.0"}` (currently a stub — the real updater is the Tauri plugin).
+Check for updates. Returns `{"available": false, "current": "0.3.1"}` (currently a stub — the real updater is the Tauri plugin).
 
 ## Memory
 
@@ -163,13 +163,77 @@ Toggle a tool on/off. Currently always returns 200 (toggle state not yet persist
 ## Skills
 
 ### GET /v1/skills
-List installed + bundled skills, combined.
+List installed + bundled skills, combined. Reserved subdirs (`_proposed/`, `_archived/`, `_history/`, `_merged/`, `_rejected/`) are excluded; they're surfaced via the endpoints below.
 
 ### POST /v1/skills/install
 Install a skill. Body: `{"id": "category/skill-name", "profile": "..."}`.
 
 ### POST /v1/skills/uninstall
 Uninstall a skill. Body: `{"id": "category/skill-name", "profile": "..."}`.
+
+## Skill Proposals (Phase 11)
+
+The main agent proposes new/edited skills via the `skill_manage` tool — proposals land in `_proposed/<uuid>/` awaiting review rather than mutating active state directly. The curator agent also writes into this queue with a non-empty `intent` field (`refine`/`merge`/`split`/`archive`/`recategorize`).
+
+### GET /v1/skills/proposals
+Returns the queue, newest first. Each entry is `{metadata, content, guard_result, dir}` where `metadata` carries `id, name, category, description, trust_tier, created_by, created_at, source, status, intent, intent_targets, intent_new_category, intent_reason`, and `guard_result` is the 30+-pattern scan (`{blocked, findings, scanned_at, duration_ms}`).
+
+### GET /v1/skills/proposals/{id}
+Single proposal, same shape as above. Path `{id}` is the UUID.
+
+### POST /v1/skills/proposals/{id}/approve
+Promote a proposal to an active skill. Body (all optional): `{"refined_content": "...", "reviewer_note": "..."}`. If `refined_content` is supplied, it replaces the proposal body and re-runs the guard before write. Intent-aware:
+- `create`/`refine`/`merge`: calls `PromoteProposal` (writes to `<category>/<name>/SKILL.md`, snapshots prior version to `_history/` if overwriting). `merge` also archives loser skills.
+- `archive`/`recategorize`: no SKILL.md promotion — calls `ApplyCuratorIntent` directly (archive removes the target; recategorize renames the active dir). Proposal parked under `_rejected/` as "applied" for audit.
+- `split`: materialises each child as a new active skill from the proposal's `split_children/` subdir, then archives the source.
+
+Response: `{"status":"approved","approved":"<category>/<name>"}` or `{"status":"applied","intent":"archive|recategorize|split"}`.
+
+### POST /v1/skills/proposals/{id}/reject
+Move a proposal to `_rejected/<uuid>/` with metadata updated (`status=rejected`, `reject_reason=<body.reason>`). Body: `{"reason": "..."}` (required).
+
+## Skill History (Phase 11)
+
+Every write to an active skill snapshots the previous version to `_history/<category>/<name>/SKILL.<timestamp_ms>.md` so rollbacks are reversible.
+
+### GET /v1/skills/history/{category}/{name}
+Returns snapshot list newest first: `[{category, name, timestamp_ms, path}]`. Path is the absolute on-disk path to the snapshot.
+
+### POST /v1/skills/history/{category}/{name}/rollback
+Restore the active SKILL.md from a snapshot. Body: `{"timestamp_ms": 1234567890}` (required, must match an existing snapshot filename). The *current* active version is itself snapshotted to history before being overwritten, so rollbacks are reversible in both directions.
+
+## Skill Usage (Phase 11)
+
+Every call the main agent makes to `skill_view` or `skill_manage` is logged into the `skill_usage` SQLite table. The curator agent reads this to decide which skills are stale, failing, or worth refining.
+
+### GET /v1/skills/usage/{category}/{name}
+Recent usage rows for one skill, newest first. Query: `?limit=N` (default 50). Each row: `{id, session_id, skill_id, message_id, used_at, outcome, context_hint}`. Outcomes: `success`, `error`, `abandoned`, `unknown`.
+
+### GET /v1/skills/usage/{category}/{name}/stats
+Aggregate stats: `{skill_id, total_count, success_rate_pct, last_used_at}`.
+
+## Skill Agents (Phase 11)
+
+Both agent loops are bounded (10 turns max) and run synchronously on request. They use the model currently configured under `GET /v1/config` — override it with `PUT /v1/config` before running if you want a specific model.
+
+### POST /v1/skills/reviewer/run
+Fires one reviewer cycle: persona injection + current inventory + proposal queue → LLM with only the `skill_review` tool → process each proposal → reply. Response is a `SkillAgentReport`:
+```json
+{
+  "agent": "reviewer",
+  "profile": "<name>",
+  "started_at": 1234567890123,
+  "finished_at": 1234567891234,
+  "turns": 3,
+  "tool_calls": 5,
+  "final_reply": "done — 2 approved, 1 refined, 1 rejected",
+  "error": ""
+}
+```
+Short-circuits with `final_reply: "no proposals queued"` when the queue is empty.
+
+### POST /v1/skills/curator/run
+Fires one curator cycle against the current active inventory + usage stats. Same `SkillAgentReport` shape. The curator writes proposals to the queue — they do NOT mutate active state until a subsequent reviewer run approves them.
 
 ## Cron
 
@@ -219,7 +283,7 @@ Start the dev server and adapter processes.
 ### POST /v1/claw3d/stop
 Stop both processes.
 
-## Total: 43 endpoints
+## Total: 50 endpoints
 
 ## Read next
 - [[02 - HTTP API Surface]]

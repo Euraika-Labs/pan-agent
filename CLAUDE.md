@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Repo:** `git.euraika.net/euraika/pan-agent` (GitLab primary), `github.com/Euraika-Labs/pan-agent` (mirror)
 - **Owner:** Bert Colemont (`bert@euraika.net`)
-- **Status:** Phase 1-10 complete. Full feature parity with hermes-desktop + cross-platform.
-- **Version:** 0.2.0 (Windows + macOS + Linux installers on GitHub Releases)
+- **Status:** Phase 1-11 complete. Full feature parity with hermes-desktop + cross-platform + self-healing skill system (reviewer + curator agents).
+- **Version:** 0.3.1 (Windows + macOS + Linux installers on GitHub Releases)
 
 ## Build & Run
 
@@ -21,7 +21,7 @@ alias go='C:/Users/bertc/go-sdk/go/bin/go.exe'
 go build -o pan-agent.exe ./cmd/pan-agent
 
 # Build with version info (used in CI)
-go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=0.2.0 \
+go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=0.3.1 \
   -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD)" \
   -o pan-agent.exe ./cmd/pan-agent
 
@@ -91,4 +91,17 @@ GitHub CI (`.github/workflows/ci.yml`): Go build/test on Linux+Windows+macOS, de
 
 ## API Overview
 
-43 endpoints across 12 resource groups. Full reference in `docs/MANUAL.md`.
+50 endpoints across 14 resource groups: chat, approvals, sessions, models, config,
+memory, persona, tools, skills (list/install), **skill proposals / history / usage /
+reviewer / curator** (Phase 11), cron, health, profiles, doctor, gateway toggles,
+claw3d. Full reference in `docs/manual/00 - HTTP API Reference.md`.
+
+## Phase 11: self-healing skill system
+
+- **`internal/skills/`** — proposal queue under `<ProfileSkillsDir>/_proposed/<uuid>/`, history snapshots under `_history/<category>/<name>/`, archived under `_archived/`, rejected under `_rejected/`, curator merges under `_merged/`. Path containment enforced by `resolveActiveDir` / `resolveProposalDir` / `resolveHistoryDir` helpers using `filepath.Rel`.
+- **`internal/skills/guard.go`** — 30+ regex patterns across 6 categories (exec, fs, net, creds, obfuscation, prompt_injection). Blocks proposals with `severity=block` findings before they reach disk.
+- **`internal/skills/curator.go`** — `ProposeCuratorRefinement / Merge / Split / Archive / Recategorize` write proposals to the queue carrying an `Intent` field; reviewer approval triggers `ApplyCuratorIntent` for the right side-effect.
+- **`internal/skills/embed/`** — `reviewer.md` + `curator.md` persona contracts, embedded via `go:embed`.
+- **`internal/tools/skill_review_tool.go` + `skill_curator_tool.go`** — agent-loop-only tools; the gateway only exposes them to the reviewer/curator run endpoints.
+- **`internal/gateway/skill_agents.go`** — `runReviewerAgent` + `runCuratorAgent` bounded 10-turn LLM loops.
+- **`internal/gateway/chat.go`** — injects active skills as a user message at a stable cache boundary; logs `skill_view` / `skill_manage` tool calls into `storage.SkillUsage` for curator input.

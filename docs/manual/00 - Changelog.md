@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-04-14 — v0.3.1 bug fix + CI hardening
+
+Patch release. Fixes a Phase 11 regression caught during a manual end-to-end smoke test: `walkSkillsDir` was enumerating `_proposed/`, `_archived/`, `_history/`, `_merged/`, `_rejected/` as if they were regular skill categories, leaking UUID-named "skills" into `/v1/skills` and the LLM-facing skills-inventory injection in `chat.go`. Fixed by excluding underscore-prefixed dirs in the walker with a regression test.
+
+Also closes the chronic gosec false-positive noise in GitHub Code Scanning: 43 alerts dismissed with rationale (G104/G204/G304/G703/G704), 3 real perm-tightening fixes in `filesystem.go` (0o644→0o600 on files, 0o755→0o750 on dirs), 2 `// #nosec` with rationale (G117 Tavily request body, G122 Walk TOCTOU threat model), and `lint.yml`'s gosec job now excludes the noise rules going forward with an explicit rationale block. From 62 open alerts → 0.
+
+Release workflow now publishes SHA256 hashes, a Windows Defender false-positive note, and VirusTotal analysis links in every release body, and auto-opens a tracking issue with the manual WDSI submission checklist. README's "Windows SmartScreen" section expanded into a fuller "Windows SmartScreen & Defender" section.
+
+`.golangci.yml` migrated to v2 schema with a lean linter set; `lint.yml` clippy job builds the Go sidecar before linting (mirrors the `ci.yml` tauri pattern); gosec job got `security-events: write` for SARIF upload. Removed the workflow-driven CodeQL config that conflicted with the repo's default-setup CodeQL.
+
+## 2026-04-14 — v0.3.0 Phase 11 self-healing skill system
+
+Major release shipping the reviewer + curator agent loops on top of the hermes-parity skill manager. Agents can now propose new/edited skills mid-task, have them reviewed (approved / refined / merged / rejected), and have an independent curator agent re-arrange the active library over time based on real usage data.
+
+**Phase 11 — self-healing:**
+- **Proposal queue** at `<ProfileSkillsDir>/_proposed/<uuid>/`. Main agent's `skill_manage(action=create|edit|...)` writes here rather than mutating active state. Each proposal carries `ProposalMetadata` (UUID, trust tier, source, status, intent, intent targets, intent new category, intent reason) and the SKILL.md body, plus a guard-scan result.
+- **Guard scanner** with 30+ regex patterns across 6 categories (exec, fs, net, creds, obfuscation, prompt_injection). Blocks proposals with `severity=block` findings before they reach disk.
+- **History snapshots** at `_history/<category>/<name>/SKILL.<timestamp_ms>.md`, reversible in both directions (rollbacks snapshot the current version too). New endpoints `GET /v1/skills/history/{category}/{name}` + `POST .../rollback`.
+- **Atomic writes** (temp file + rename) everywhere in the skill manager, with rollback of the proposal dir on guard-blocked content.
+- **Reviewer agent** — bundled `reviewer.md` persona, `skill_review` tool (list/get/approve/reject/merge), `runReviewerAgent` bounded 10-turn LLM loop, endpoint `POST /v1/skills/reviewer/run`. Approve is intent-aware so curator-originated proposals trigger `ApplyCuratorIntent` for the right side-effect (archive losers, materialise split children, rename recategorised dir).
+- **Curator agent** — bundled `curator.md` persona, `skill_curator` tool (list_active_with_usage + 5 propose actions), `runCuratorAgent`, endpoint `POST /v1/skills/curator/run`. Curator writes into the same proposal queue the reviewer consumes, with intent metadata (`refine`/`merge`/`split`/`archive`/`recategorize`).
+- **Usage tracking** in a new SQLite table `skill_usage` with indexes by skill, session, and time. `storage.DB.LogSkillUsage / ListSkillUsage / GetSkillUsageStats`. Endpoints `GET /v1/skills/usage/{category}/{name}` + `.../stats`.
+- **Chat integration**: skills inventory injected as a stable user message at a cache-friendly boundary (not in the system prompt — preserves the Anthropic prompt cache across turns). Tool calls on `skill_view` / `skill_manage` are logged to `SkillUsage` for curator input.
+- **10 new HTTP endpoints** under `/v1/skills/` bringing the total to 50.
+- **Path containment** uniformly enforced by `resolveActiveDir` / `resolveProposalDir` / `resolveHistoryDir` helpers using `filepath.Rel`. Same sanitiser pattern CodeQL recognises (zero open `go/path-injection` alerts).
+- **22 new unit tests** across `internal/skills/` covering proposal lifecycle, history+rollback, guard blocking, curator intents + apply, path-traversal rejection at every entry.
+
 ## 2026-04-14 — v0.2.0 cross-platform + gateway bots + auto-update
 
 Major release closing the last feature gaps with hermes-desktop. Pan-Agent is now at full feature parity plus cross-platform support.

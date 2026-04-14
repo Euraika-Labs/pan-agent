@@ -118,7 +118,7 @@ pan-agent doctor
 pan-agent version
 ```
 
-The HTTP API has 43 endpoints — see the [HTTP API Reference](docs/manual/00%20-%20HTTP%20API%20Reference.md) for the full catalog.
+The HTTP API has 50 endpoints — see the [HTTP API Reference](docs/manual/00%20-%20HTTP%20API%20Reference.md) for the full catalog.
 
 Quick examples:
 
@@ -217,7 +217,7 @@ The full manual is in [`docs/manual/`](docs/manual/) — 39 documents organized 
                      │
 ┌────────────────────▼───────────────────────────────────┐
 │  Go Backend (single binary)                           │
-│  • HTTP server on localhost:8642 (43 endpoints)       │
+│  • HTTP server on localhost:8642 (50 endpoints)       │
 │  • OpenAI-compatible streaming LLM client             │
 │  • 20+ registered tools (cross-platform)              │
 │  • Approval system (103 patterns)                     │
@@ -428,15 +428,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 | Metric | Value |
 |---|---|
-| Latest release | [v0.2.0](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
+| Latest release | [v0.3.1](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
 | Platforms | Windows, macOS, Linux |
-| Go test functions | 72 (across 6 packages) |
-| HTTP endpoints | 43 (across 12 resource groups) |
+| Go test functions | 93 (across 7 packages) |
+| HTTP endpoints | 50 (across 14 resource groups) |
 | React screens | 15 |
 | Approval patterns | 103 (Dangerous + Catastrophic) |
 | Supported LLM providers | 9 |
-| Built-in tools | 20+ |
-| Documentation | 39 manual documents |
+| Built-in tools | 22+ (includes `skill_manage`, `skill_view`, `skills_list`, `skill_review`, `skill_curator`) |
+| Self-healing skill system | Phase 11 — proposal queue, reviewer + curator agents, history+rollback |
+| Documentation | 40 manual documents |
 | License | MIT |
 
 Pan-Agent has reached **full feature parity with its predecessor (Pan Desktop / Hermes Desktop)** plus cross-platform support — see [CHANGELOG.md](CHANGELOG.md) for the version history.
