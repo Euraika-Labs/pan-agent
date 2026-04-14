@@ -87,7 +87,7 @@ var DangerousPatterns = []Pattern{
 	// Self-termination protection
 	p(`\b(pkill|killall)\b.*\b(hermes|gateway|cli\.py)\b`, "kill hermes/gateway process (self-termination)", "kill hermes/gateway process (self-termination)"),
 	p(`\bkill\b.*\$\(\s*pgrep\b`, "kill process via pgrep expansion (self-termination)", "kill process via pgrep expansion (self-termination)"),
-	p(`\bkill\b.*` + "`" + `\s*pgrep\b`, "kill process via backtick pgrep expansion (self-termination)", "kill process via backtick pgrep expansion (self-termination)"),
+	p(`\bkill\b.*`+"`"+`\s*pgrep\b`, "kill process via backtick pgrep expansion (self-termination)", "kill process via backtick pgrep expansion (self-termination)"),
 	// File copy/move/edit into sensitive system paths
 	p(`\b(cp|mv|install)\b.*\s/etc/`, "copy/move file into /etc/", "copy/move file into /etc/"),
 	p(`\bsed\s+-[^\s]*i.*\s/etc/`, "in-place edit of system config", "in-place edit of system config"),

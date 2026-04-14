@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	entryDelimiter = "\n§\n"
+	entryDelimiter  = "\n§\n"
 	memoryCharLimit = 2200
 	userCharLimit   = 1375
 )

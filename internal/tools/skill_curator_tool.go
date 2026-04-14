@@ -62,14 +62,14 @@ func (SkillCuratorTool) Parameters() json.RawMessage {
 }
 
 type skillCuratorParams struct {
-	Action       string                  `json:"action"`
-	SkillID      string                  `json:"skill_id"`
-	SkillIDs     []string                `json:"skill_ids"`
-	NewContent   string                  `json:"new_content"`
-	Consolidated string                  `json:"consolidated"`
-	NewCategory  string                  `json:"new_category"`
-	NewSkills    []skills.SplitProposal  `json:"new_skills"`
-	Reason       string                  `json:"reason"`
+	Action       string                 `json:"action"`
+	SkillID      string                 `json:"skill_id"`
+	SkillIDs     []string               `json:"skill_ids"`
+	NewContent   string                 `json:"new_content"`
+	Consolidated string                 `json:"consolidated"`
+	NewCategory  string                 `json:"new_category"`
+	NewSkills    []skills.SplitProposal `json:"new_skills"`
+	Reason       string                 `json:"reason"`
 }
 
 func (t SkillCuratorTool) Execute(_ context.Context, params json.RawMessage) (*Result, error) {

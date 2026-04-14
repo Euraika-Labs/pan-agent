@@ -36,26 +36,26 @@ const (
 
 // Repeat tracks repeat-count metadata for a job.
 type Repeat struct {
-	Times     *int `json:"times"`      // nil means unlimited
+	Times     *int `json:"times"` // nil means unlimited
 	Completed int  `json:"completed"`
 }
 
 // Job is a single scheduled task.
 type Job struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Schedule string   `json:"schedule"`
-	Prompt   string   `json:"prompt"`
-	State    State    `json:"state"`
-	Enabled  bool     `json:"enabled"`
-	NextRun  *int64   `json:"next_run_at,omitempty"`  // Unix ms; nil = not yet scheduled
-	LastRun  *int64   `json:"last_run_at,omitempty"`  // Unix ms; nil = never run
-	LastStatus string  `json:"last_status,omitempty"`
-	LastError  string  `json:"last_error,omitempty"`
-	Repeat   *Repeat  `json:"repeat,omitempty"`
-	Deliver  []string `json:"deliver,omitempty"`
-	Skills   []string `json:"skills,omitempty"`
-	Script   string   `json:"script,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Schedule   string   `json:"schedule"`
+	Prompt     string   `json:"prompt"`
+	State      State    `json:"state"`
+	Enabled    bool     `json:"enabled"`
+	NextRun    *int64   `json:"next_run_at,omitempty"` // Unix ms; nil = not yet scheduled
+	LastRun    *int64   `json:"last_run_at,omitempty"` // Unix ms; nil = never run
+	LastStatus string   `json:"last_status,omitempty"`
+	LastError  string   `json:"last_error,omitempty"`
+	Repeat     *Repeat  `json:"repeat,omitempty"`
+	Deliver    []string `json:"deliver,omitempty"`
+	Skills     []string `json:"skills,omitempty"`
+	Script     string   `json:"script,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -72,21 +72,21 @@ func filePath() string {
 // Specifically, schedule may be stored as a nested object with a "value" key
 // (pan-agent legacy format) or as a plain string.  We normalise on read.
 type rawJob struct {
-	ID       string          `json:"id"`
-	Name     string          `json:"name"`
-	Schedule json.RawMessage `json:"schedule"`          // string OR {"value":"..."}
-	ScheduleDisplay string   `json:"schedule_display"`
-	Prompt   string          `json:"prompt"`
-	State    string          `json:"state"`
-	Enabled  *bool           `json:"enabled"`
-	NextRun  *int64          `json:"next_run_at"`
-	LastRun  *int64          `json:"last_run_at"`
-	LastStatus string        `json:"last_status"`
-	LastError  string        `json:"last_error"`
-	Repeat   *Repeat         `json:"repeat"`
-	Deliver  json.RawMessage `json:"deliver"` // string OR []string
-	Skills   json.RawMessage `json:"skills"`  // string OR []string
-	Script   string          `json:"script"`
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Schedule        json.RawMessage `json:"schedule"` // string OR {"value":"..."}
+	ScheduleDisplay string          `json:"schedule_display"`
+	Prompt          string          `json:"prompt"`
+	State           string          `json:"state"`
+	Enabled         *bool           `json:"enabled"`
+	NextRun         *int64          `json:"next_run_at"`
+	LastRun         *int64          `json:"last_run_at"`
+	LastStatus      string          `json:"last_status"`
+	LastError       string          `json:"last_error"`
+	Repeat          *Repeat         `json:"repeat"`
+	Deliver         json.RawMessage `json:"deliver"` // string OR []string
+	Skills          json.RawMessage `json:"skills"`  // string OR []string
+	Script          string          `json:"script"`
 }
 
 // scheduleValue is the nested-object schedule format used by pan-agent legacy jobs.

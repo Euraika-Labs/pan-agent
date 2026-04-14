@@ -6,8 +6,8 @@ import (
 	"log"
 
 	"github.com/slack-go/slack"
-	"github.com/slack-go/slack/socketmode"
 	"github.com/slack-go/slack/slackevents"
+	"github.com/slack-go/slack/socketmode"
 )
 
 // startSlack starts the Slack bot using Socket Mode (no public URL needed).

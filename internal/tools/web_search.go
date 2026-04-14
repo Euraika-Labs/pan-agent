@@ -168,7 +168,6 @@ var (
 	reTag       = regexp.MustCompile(`<[^>]+>`)
 	reSpaces    = regexp.MustCompile(`\s{2,}`)
 	reHTTPLinks = regexp.MustCompile(`https?://[^\s"'<>]+`)
-	reTitleTag  = regexp.MustCompile(`(?i)<title[^>]*>(.*?)</title>`)
 )
 
 func fallbackSearch(ctx context.Context, query string, maxResults int) ([]searchResult, error) {

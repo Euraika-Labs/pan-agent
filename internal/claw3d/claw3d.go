@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	repoURL     = "https://github.com/Euraika-Labs/pan-office" // our fork of Claw3D
-	defaultPort = 3000
+	repoURL      = "https://github.com/Euraika-Labs/pan-office" // our fork of Claw3D
+	defaultPort  = 3000
 	defaultWsURL = "ws://localhost:18789"
 )
 
@@ -163,7 +163,6 @@ func isAdapterRunning() bool {
 	removePID(adapterPIDFile)
 	return false
 }
-
 
 // ---------------------------------------------------------------------------
 // Status
@@ -395,7 +394,6 @@ func StopAdapter() error {
 	removePID(adapterPIDFile)
 	return firstErr
 }
-
 
 // ---------------------------------------------------------------------------
 // Internal helpers

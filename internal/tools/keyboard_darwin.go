@@ -50,7 +50,7 @@ var macNamedKeys = map[string]C.CGKeyCode{
 	"home": C.kVK_Home, "end": C.kVK_End,
 	"pageup": C.kVK_PageUp, "pagedown": C.kVK_PageDown,
 	"space": C.kVK_Space,
-	"f1": C.kVK_F1, "f2": C.kVK_F2, "f3": C.kVK_F3, "f4": C.kVK_F4,
+	"f1":    C.kVK_F1, "f2": C.kVK_F2, "f3": C.kVK_F3, "f4": C.kVK_F4,
 	"f5": C.kVK_F5, "f6": C.kVK_F6, "f7": C.kVK_F7, "f8": C.kVK_F8,
 	"f9": C.kVK_F9, "f10": C.kVK_F10, "f11": C.kVK_F11, "f12": C.kVK_F12,
 }

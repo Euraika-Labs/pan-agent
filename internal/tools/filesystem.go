@@ -23,8 +23,8 @@ type FilesystemTool struct{}
 type filesystemParams struct {
 	Operation string `json:"operation"`
 	Path      string `json:"path"`
-	Content   string `json:"content,omitempty"` // used by write / append
-	Pattern   string `json:"pattern,omitempty"` // used by search (regexp)
+	Content   string `json:"content,omitempty"`   // used by write / append
+	Pattern   string `json:"pattern,omitempty"`   // used by search (regexp)
 	Recursive bool   `json:"recursive,omitempty"` // used by list / search
 }
 

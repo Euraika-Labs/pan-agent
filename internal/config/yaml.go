@@ -19,7 +19,7 @@ import (
 //
 // The regex matches lines of the form:
 //
-//	  <optional-whitespace><key>:<optional-whitespace><optional-quote><value><optional-quote>
+//	<optional-whitespace><key>:<optional-whitespace><optional-quote><value><optional-quote>
 //
 // Returns ("", ErrNotFound) when the file does not exist or the key is absent.
 func GetValue(path, key string) (string, error) {

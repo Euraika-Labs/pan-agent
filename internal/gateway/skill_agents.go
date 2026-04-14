@@ -15,14 +15,14 @@ import (
 
 // SkillAgentReport summarises one reviewer or curator run.
 type SkillAgentReport struct {
-	Agent       string `json:"agent"`         // "reviewer" | "curator"
-	Profile     string `json:"profile"`
-	StartedAt   int64  `json:"started_at"`
-	FinishedAt  int64  `json:"finished_at"`
-	Turns       int    `json:"turns"`
-	ToolCalls   int    `json:"tool_calls"`
-	FinalReply  string `json:"final_reply,omitempty"`
-	Error       string `json:"error,omitempty"`
+	Agent      string `json:"agent"` // "reviewer" | "curator"
+	Profile    string `json:"profile"`
+	StartedAt  int64  `json:"started_at"`
+	FinishedAt int64  `json:"finished_at"`
+	Turns      int    `json:"turns"`
+	ToolCalls  int    `json:"tool_calls"`
+	FinalReply string `json:"final_reply,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // runReviewerAgent drives one full reviewer cycle. It reads the proposal

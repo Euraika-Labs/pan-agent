@@ -1,9 +1,6 @@
 package tools
 
-import (
-	"encoding/json"
-	"strings"
-)
+import "encoding/json"
 
 // keyboardParams is the JSON parameter shape for the keyboard tool.
 type keyboardParams struct {
@@ -38,20 +35,3 @@ var keyboardParametersJSON = json.RawMessage(`{
     }
   }
 }`)
-
-// namedKeysList maps friendly names to a platform-neutral key identifier.
-// Platform files map these to OS-specific codes.
-var namedKeysList = []string{
-	"enter", "return", "tab", "escape", "esc", "backspace", "delete", "del",
-	"left", "up", "right", "down", "home", "end", "pageup", "pagedown",
-	"insert", "space",
-	"f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
-}
-
-// modifierKeysList is the set of valid modifier names.
-var modifierKeysList = []string{"ctrl", "alt", "shift", "win", "super"}
-
-// normalizeKeyName lowercases and trims a key name.
-func normalizeKeyName(name string) string {
-	return strings.ToLower(strings.TrimSpace(name))
-}

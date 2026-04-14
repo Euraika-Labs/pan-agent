@@ -23,13 +23,13 @@ const (
 
 // Approval is a single pending (or resolved) tool-approval request.
 type Approval struct {
-	ID         string  `json:"id"`
-	SessionID  string  `json:"session_id"`
-	ToolName   string  `json:"tool_name"`
-	Arguments  string  `json:"arguments"` // raw JSON string
-	Status     Status  `json:"status"`
-	CreatedAt  int64   `json:"created_at"`
-	ResolvedAt *int64  `json:"resolved_at,omitempty"`
+	ID         string `json:"id"`
+	SessionID  string `json:"session_id"`
+	ToolName   string `json:"tool_name"`
+	Arguments  string `json:"arguments"` // raw JSON string
+	Status     Status `json:"status"`
+	CreatedAt  int64  `json:"created_at"`
+	ResolvedAt *int64 `json:"resolved_at,omitempty"`
 
 	// ch is signalled when the approval is resolved. Not exposed in JSON.
 	ch chan struct{}

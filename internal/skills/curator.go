@@ -273,7 +273,7 @@ func (m *Manager) ProposeCuratorRecategorize(skillID, newCategory, reason, sessi
 // that the proposal *intent* requires beyond just promoting the SKILL.md:
 //
 //   - refine        → no extra work (PromoteProposal already overwrote in place
-//                     via the snapshot path).
+//     via the snapshot path).
 //   - merge         → archive the loser skills.
 //   - split         → archive the source + materialise each child.
 //   - archive       → archive the target skill.

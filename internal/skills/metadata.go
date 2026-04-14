@@ -20,7 +20,7 @@ type ProposalMetadata struct {
 	TrustTier    string   `json:"trust_tier"` // builtin|trusted|community|agent-created
 	CreatedBy    string   `json:"created_by"` // session_id
 	CreatedAt    int64    `json:"created_at"`
-	Source       string   `json:"source"`      // "agent"|"curator"|"reviewer"|"user"
+	Source       string   `json:"source"` // "agent"|"curator"|"reviewer"|"user"
 	UsageCount   int      `json:"usage_count"`
 	LastUsedAt   int64    `json:"last_used_at,omitempty"`
 	Status       string   `json:"status"` // proposed|active|rejected|merged|archived
@@ -55,12 +55,12 @@ const (
 
 // Intent constants for curator-originated proposals.
 const (
-	IntentCreate        = "" // default — agent-authored brand-new skill
-	IntentRefine        = "refine"
-	IntentMerge         = "merge"
-	IntentSplit         = "split"
-	IntentArchive       = "archive"
-	IntentRecategorize  = "recategorize"
+	IntentCreate       = "" // default — agent-authored brand-new skill
+	IntentRefine       = "refine"
+	IntentMerge        = "merge"
+	IntentSplit        = "split"
+	IntentArchive      = "archive"
+	IntentRecategorize = "recategorize"
 )
 
 // TrustTier constants.

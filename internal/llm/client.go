@@ -58,8 +58,8 @@ type sseChoice struct {
 }
 
 type sseDelta struct {
-	Role      string          `json:"role"`
-	Content   *string         `json:"content"`
+	Role      string             `json:"role"`
+	Content   *string            `json:"content"`
 	ToolCalls []sseToolCallDelta `json:"tool_calls,omitempty"`
 }
 

@@ -2,7 +2,6 @@ package memory
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -309,15 +308,4 @@ func TestSerializeRoundTrip(t *testing.T) {
 			t.Errorf("round-trip[%d]: got %q, want %q", i, out[i], in[i])
 		}
 	}
-}
-
-// makeMemoryFile is a helper so we can test file functions without touching paths.
-func makeMemoryFile(t *testing.T, content string) string {
-	t.Helper()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "MEMORY.md")
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-		t.Fatalf("makeMemoryFile: %v", err)
-	}
-	return p
 }

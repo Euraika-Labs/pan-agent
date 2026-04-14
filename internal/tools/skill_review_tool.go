@@ -13,12 +13,12 @@ import (
 // It is *not* exposed to the main agent — the gateway only includes it in the
 // tool list when running the reviewer loop. Actions:
 //
-//   list     — enumerate every proposal awaiting review
-//   get      — fetch one proposal in full (metadata + content + guard findings)
-//   approve  — promote a proposal (optionally with refined content); for
-//              curator-originated proposals also runs ApplyCuratorIntent
-//   reject   — move a proposal to _rejected/ with a reason
-//   merge    — consolidate ≥2 proposals into one promotion
+//	list     — enumerate every proposal awaiting review
+//	get      — fetch one proposal in full (metadata + content + guard findings)
+//	approve  — promote a proposal (optionally with refined content); for
+//	           curator-originated proposals also runs ApplyCuratorIntent
+//	reject   — move a proposal to _rejected/ with a reason
+//	merge    — consolidate ≥2 proposals into one promotion
 type SkillReviewTool struct {
 	Profile string
 }
@@ -48,12 +48,12 @@ func (SkillReviewTool) Parameters() json.RawMessage {
 }
 
 type skillReviewParams struct {
-	Action          string   `json:"action"`
-	ProposalID      string   `json:"proposal_id"`
-	ProposalIDs     []string `json:"proposal_ids"`
-	RefinedContent  string   `json:"refined_content"`
-	Reason          string   `json:"reason"`
-	MergedContent   string   `json:"merged_content"`
+	Action         string   `json:"action"`
+	ProposalID     string   `json:"proposal_id"`
+	ProposalIDs    []string `json:"proposal_ids"`
+	RefinedContent string   `json:"refined_content"`
+	Reason         string   `json:"reason"`
+	MergedContent  string   `json:"merged_content"`
 }
 
 func (t SkillReviewTool) Execute(_ context.Context, params json.RawMessage) (*Result, error) {
@@ -107,9 +107,9 @@ func (t SkillReviewTool) Execute(_ context.Context, params json.RawMessage) (*Re
 			return &Result{Error: err.Error()}, nil
 		}
 		out, _ := json.Marshal(map[string]string{
-			"ok":           "true",
-			"merged_into":  meta.Category + "/" + meta.Name,
-			"survivor_id":  meta.ID,
+			"ok":          "true",
+			"merged_into": meta.Category + "/" + meta.Name,
+			"survivor_id": meta.ID,
 		})
 		return &Result{Output: string(out)}, nil
 
@@ -232,8 +232,8 @@ func reviewApprove(mgr *skills.Manager, id, refined, note string) (*Result, erro
 			if err := mgr.ApplyCuratorIntent(meta, ""); err != nil {
 				// Promotion already succeeded; report partial success.
 				out, _ := json.Marshal(map[string]string{
-					"ok":           "true",
-					"approved":     meta.Category + "/" + meta.Name,
+					"ok":            "true",
+					"approved":      meta.Category + "/" + meta.Name,
 					"merge_warning": err.Error(),
 				})
 				return &Result{Output: string(out)}, nil

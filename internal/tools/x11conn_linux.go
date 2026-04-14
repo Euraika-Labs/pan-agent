@@ -18,7 +18,6 @@ var (
 	x11conn *xgb.Conn
 	x11err  error
 	x11root xproto.Window
-	x11min  xproto.Keycode
 
 	// keysymToKeycode is built once from GetKeyboardMapping.
 	keymapOnce sync.Once
@@ -38,7 +37,6 @@ func x11Conn() (*xgb.Conn, error) {
 		}
 		setup := xproto.Setup(x11conn)
 		x11root = setup.DefaultScreen(x11conn).Root
-		x11min = setup.MinKeycode
 
 		// Initialize XTest extension.
 		if err := xtest.Init(x11conn); err != nil {
@@ -123,9 +121,7 @@ func x11SendClientMessage(c *xgb.Conn, window xproto.Window, msgType xproto.Atom
 		Type:   msgType,
 	}
 	// Pack uint32 data into the Data union (20 bytes = 5 x uint32).
-	for i, v := range d {
-		ev.Data.Data32[i] = v
-	}
+	copy(ev.Data.Data32[:], d[:])
 
 	mask := uint32(xproto.EventMaskSubstructureRedirect | xproto.EventMaskSubstructureNotify)
 	return xproto.SendEventChecked(c, false, x11Root(), mask, string(ev.Bytes())).Check()
