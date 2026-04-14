@@ -1,35 +1,41 @@
 package storage
 
 // Session represents a conversation session stored in the database.
+//
+// JSON tags use camelCase to match the React UI's field expectations (see
+// desktop/src/screens/Sessions/Sessions.tsx). Without these, Go's default
+// marshaller emits PascalCase ("SessionID"), which the UI silently treats
+// as undefined — the root cause of the "undefined session card" and missing
+// React key warnings seen pre-audit.
 type Session struct {
-	ID           string
-	Source       string
-	StartedAt    int64
-	EndedAt      *int64
-	MessageCount int
-	Model        string
-	Title        string
+	ID           string `json:"id"`
+	Source       string `json:"source"`
+	StartedAt    int64  `json:"startedAt"`
+	EndedAt      *int64 `json:"endedAt,omitempty"`
+	MessageCount int    `json:"messageCount"`
+	Model        string `json:"model"`
+	Title        string `json:"title"`
 }
 
 // Message represents a single message within a session.
 type Message struct {
-	ID        int64
-	SessionID string
-	Role      string
-	Content   string
-	Timestamp int64
+	ID        int64  `json:"id"`
+	SessionID string `json:"sessionId"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 // SearchResult is returned by SearchSessions and includes a content snippet
 // produced by the FTS5 snippet() function.
 type SearchResult struct {
-	SessionID    string
-	Title        string
-	StartedAt    int64
-	Source       string
-	MessageCount int
-	Model        string
-	Snippet      string
+	SessionID    string `json:"sessionId"`
+	Title        string `json:"title"`
+	StartedAt    int64  `json:"startedAt"`
+	Source       string `json:"source"`
+	MessageCount int    `json:"messageCount"`
+	Model        string `json:"model"`
+	Snippet      string `json:"snippet"`
 }
 
 // SkillUsage records a single invocation of a skill by a session.

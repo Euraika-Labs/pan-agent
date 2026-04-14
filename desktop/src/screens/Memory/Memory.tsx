@@ -112,7 +112,7 @@ function Memory({ profile }: { profile?: string }): React.JSX.Element {
     setError("");
     try {
       const result = await fetchJSON<OperationResult>(
-        `/v1/memory/entries${profileParam}`,
+        `/v1/memory${profileParam}`,
         {
           method: "POST",
           body: JSON.stringify({ content: newEntry.trim() }),
@@ -135,7 +135,7 @@ function Memory({ profile }: { profile?: string }): React.JSX.Element {
     setError("");
     try {
       const result = await fetchJSON<OperationResult>(
-        `/v1/memory/entries/${editingIndex}${profileParam}`,
+        `/v1/memory/${editingIndex}${profileParam}`,
         {
           method: "PUT",
           body: JSON.stringify({ content: editContent.trim() }),
@@ -155,7 +155,7 @@ function Memory({ profile }: { profile?: string }): React.JSX.Element {
 
   async function handleDeleteEntry(index: number): Promise<void> {
     try {
-      await fetchJSON(`/v1/memory/entries/${index}${profileParam}`, {
+      await fetchJSON(`/v1/memory/${index}${profileParam}`, {
         method: "DELETE",
       });
       setConfirmDelete(null);

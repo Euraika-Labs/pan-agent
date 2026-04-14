@@ -1,10 +1,12 @@
 import { useState, useCallback, useEffect } from "react";
+import { ErrorBoundary } from "../../components/ErrorBoundary";
 import Chat, { type ChatMessage } from "../Chat/Chat";
 import Sessions from "../Sessions/Sessions";
 import Profiles from "../Profiles/Profiles";
 import Settings from "../Settings/Settings";
 import Setup from "../Setup/Setup";
 import Skills from "../Skills/Skills";
+import SkillReview from "../SkillReview/SkillReview";
 import Soul from "../Soul/Soul";
 import Memory from "../Memory/Memory";
 import Tools from "../Tools/Tools";
@@ -39,6 +41,7 @@ type View =
   | "office"
   | "models"
   | "skills"
+  | "skill-review"
   | "soul"
   | "memory"
   | "tools"
@@ -54,6 +57,7 @@ const NAV_ITEMS: { view: View; icon: LucideIcon; label: string }[] = [
   { view: "office", icon: Building, label: "Office" },
   { view: "models", icon: Layers, label: "Models" },
   { view: "skills", icon: Puzzle, label: "Skills" },
+  { view: "skill-review", icon: Sparkles, label: "Skill Review" },
   { view: "soul", icon: Sparkles, label: "Persona" },
   { view: "memory", icon: Brain, label: "Memory" },
   { view: "tools", icon: Wrench, label: "Tools" },
@@ -194,6 +198,11 @@ function Layout(): React.JSX.Element {
       </aside>
 
       <main className="content">
+        {/* Wrap screens in an ErrorBoundary so one crashy screen (e.g. Memory
+            before the shape fix) doesn't blank the whole app. key=view resets
+            the boundary on view change so a new screen always gets a fresh
+            render attempt. */}
+        <ErrorBoundary key={view} screenName={view}>
         {/* Chat — always mounted, hidden when not active */}
         <div
           style={{
@@ -247,6 +256,7 @@ function Layout(): React.JSX.Element {
 
         {view === "models" && <Models />}
         {view === "skills" && <Skills profile={activeProfile} />}
+        {view === "skill-review" && <SkillReview />}
         {view === "soul" && <Soul profile={activeProfile} />}
         {view === "memory" && <Memory profile={activeProfile} />}
         {view === "tools" && <Tools profile={activeProfile} />}
@@ -273,6 +283,7 @@ function Layout(): React.JSX.Element {
             visible={view === "settings"}
           />
         </div>
+        </ErrorBoundary>
       </main>
     </div>
   );

@@ -212,6 +212,24 @@ func (d *DB) UpdateTitle(sessionID, title string) error {
 // ---------------------------------------------------------------------------
 
 // sanitizeFTS converts a free-text query into a safe FTS5 MATCH expression.
+// CountSessions returns the total number of sessions recorded.
+func (d *DB) CountSessions() (int, error) {
+	var n int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("CountSessions: %w", err)
+	}
+	return n, nil
+}
+
+// CountMessages returns the total number of messages across all sessions.
+func (d *DB) CountMessages() (int, error) {
+	var n int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("CountMessages: %w", err)
+	}
+	return n, nil
+}
+
 // Each whitespace-delimited word is double-quoted (stripping any embedded
 // double-quotes) and given a trailing * for prefix matching, matching the
 // strategy used in the original TypeScript implementation.

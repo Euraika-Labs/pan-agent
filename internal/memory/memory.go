@@ -20,14 +20,24 @@ const (
 	userCharLimit   = 1375
 )
 
+// EntryDelimiter is the memory-file separator between entries. Exported so
+// the gateway's handleMemoryGet can reconstruct the raw file body from the
+// parsed entries list when composing its {memory, user, stats} response.
+const EntryDelimiter = entryDelimiter
+
 // MemoryState holds the current contents and metadata of both memory files.
+//
+// The raw state returned from here goes to the CLI's `pan-agent doctor` output
+// and to tests. For the HTTP API, the gateway composes a different shape —
+// {memory, user, stats} — via handleMemoryGet using these fields plus a DB
+// session/message count. See internal/gateway/routes.go:handleMemoryGet.
 type MemoryState struct {
-	Entries       []string
-	CharCount     int
-	CharLimit     int // always 2200
-	UserProfile   string
-	UserCharCount int
-	UserCharLimit int // always 1375
+	Entries       []string `json:"entries"`
+	CharCount     int      `json:"charCount"`
+	CharLimit     int      `json:"charLimit"` // always 2200
+	UserProfile   string   `json:"userProfile"`
+	UserCharCount int      `json:"userCharCount"`
+	UserCharLimit int      `json:"userCharLimit"` // always 1375
 }
 
 // ReadMemory reads MEMORY.md and USER.md for the given profile and returns a

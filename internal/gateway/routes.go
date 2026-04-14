@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -66,7 +67,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/tools/{key}", s.handleToolToggle)
 
 	// ----------------------------------------------------------------- skills
-	mux.HandleFunc("GET /v1/skills", s.handleSkillList)
+	// GET /v1/skills         → installed skills only (per-profile)
+	// GET /v1/skills/bundled → skills shipped with the binary
+	// UI discriminates between the two so "Browse" vs "Installed" tabs
+	// render cleanly.
+	mux.HandleFunc("GET /v1/skills", s.handleSkillListInstalled)
+	mux.HandleFunc("GET /v1/skills/bundled", s.handleSkillListBundled)
 	mux.HandleFunc("POST /v1/skills/install", s.handleSkillInstall)
 	mux.HandleFunc("POST /v1/skills/uninstall", s.handleSkillUninstall)
 
@@ -110,11 +116,17 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/health/gateway/start", s.handleGatewayStart)
 	mux.HandleFunc("POST /v1/health/gateway/stop", s.handleGatewayStop)
 
-	// ---------------------------------------------------------------- claw3d
-	mux.HandleFunc("GET /v1/claw3d/status", s.handleClaw3dStatus)
-	mux.HandleFunc("POST /v1/claw3d/setup", s.handleClaw3dSetup)
-	mux.HandleFunc("POST /v1/claw3d/start", s.handleClaw3dStart)
-	mux.HandleFunc("POST /v1/claw3d/stop", s.handleClaw3dStop)
+	// ----------------------------------------------------------------- office
+	// (formerly /v1/claw3d/*; renamed in the audit pass to match UI expectations.
+	// The underlying package is still internal/claw3d — Claw3D is one specific
+	// engine backing the "office workspace" abstraction.)
+	mux.HandleFunc("GET /v1/office/status", s.handleOfficeStatus)
+	mux.HandleFunc("POST /v1/office/setup", s.handleOfficeSetup)
+	mux.HandleFunc("POST /v1/office/start", s.handleOfficeStart)
+	mux.HandleFunc("POST /v1/office/stop", s.handleOfficeStop)
+	mux.HandleFunc("GET /v1/office/logs", s.handleOfficeLogs)
+	mux.HandleFunc("GET /v1/office/config", s.handleOfficeConfig)
+	mux.HandleFunc("GET /v1/office/setup/progress", s.handleOfficeSetupProgress)
 }
 
 // =============================================================================
@@ -309,6 +321,11 @@ type configModelResponse struct {
 }
 
 // handleConfigGet returns the full config for the active profile.
+//
+// Secret values in env (API keys, tokens) are masked to their last 4 chars so
+// the UI can confirm a key is set without exposing it to browser devtools,
+// proxy logs, or MCP servers with localhost access. The local HTTP API has no
+// auth (binds to 127.0.0.1 only) — masking is the last line of defence.
 func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	profile := s.resolveProfile(r)
 	env, err := config.ReadProfileEnv(profile)
@@ -320,18 +337,93 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	pool := config.GetCredentialPool()
 
 	resp := configResponse{
-		Env:       env,
+		Env:       maskSecretEnv(env),
 		AgentHome: paths.AgentHome(),
 		Model: configModelResponse{
 			Provider: mc.Provider,
 			Model:    mc.Model,
 			BaseURL:  mc.BaseURL,
 		},
-		CredentialPool: pool,
+		CredentialPool: maskCredentialPool(pool),
 		AppVersion:     version.Version,
 		AgentVersion:   nil,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// maskSecretEnv returns a copy of env with secret-shaped keys (ending in
+// _API_KEY, _TOKEN, _SECRET, _PASSWORD) masked to "<prefix>...<last4>".
+// Empty values pass through unchanged so the UI can distinguish "never set"
+// from "set to an empty string".
+func maskSecretEnv(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		if isSecretEnvKey(k) && v != "" {
+			out[k] = maskSecret(v)
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// maskCredentialPool masks the credential-pool keys/tokens the same way.
+func maskCredentialPool(pool map[string][]config.Credential) map[string][]config.Credential {
+	if pool == nil {
+		return nil
+	}
+	out := make(map[string][]config.Credential, len(pool))
+	for provider, creds := range pool {
+		masked := make([]config.Credential, len(creds))
+		for i, c := range creds {
+			masked[i] = c
+			if c.Key != "" {
+				masked[i].Key = maskSecret(c.Key)
+			}
+		}
+		out[provider] = masked
+	}
+	return out
+}
+
+// isSecretEnvKey returns true for env var names that typically hold secrets.
+// Keep conservative — false positives (masking a non-secret) are harmless;
+// false negatives (leaking a secret) are not. Expanded during the audit
+// debate to cover AWS-style ACCESS_KEY_ID, _PRIVATE_KEY, and the various
+// suffix families common in cloud credentials.
+func isSecretEnvKey(name string) bool {
+	upper := strings.ToUpper(name)
+	// Any containing match on a secret-word substring (catches prefixed +
+	// infix variants like CUSTOMER_API_KEY_PROD or PRIVATE_KEY_BASE).
+	secretTokens := []string{
+		"API_KEY",
+		"TOKEN",
+		"SECRET",
+		"PASSWORD",
+		"PASSWD",
+		"PRIVATE_KEY",
+		"ACCESS_KEY",   // AWS pattern
+		"AUTH_KEY",
+		"SIGNING_KEY",
+		"ENCRYPTION_KEY",
+		"SESSION_KEY",
+		"CREDENTIAL",
+	}
+	for _, tok := range secretTokens {
+		if strings.Contains(upper, tok) {
+			return true
+		}
+	}
+	return false
+}
+
+// maskSecret returns "<first3>***<last4>" for values ≥ 8 chars, or "***"
+// for anything shorter (don't leak the length of a short password).
+func maskSecret(v string) string {
+	if len(v) < 8 {
+		return "***"
+	}
+	return v[:3] + "***" + v[len(v)-4:]
 }
 
 // configPutBody is the union of all fields the PUT /v1/config endpoint accepts.
@@ -404,14 +496,103 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 // Memory handlers
 // =============================================================================
 
-// handleMemoryGet returns the full memory state for the active profile.
+// memorySection carries agent-memory or user-profile content for the UI.
+type memorySection struct {
+	Content      string   `json:"content"`
+	Exists       bool     `json:"exists"`
+	LastModified *int64   `json:"lastModified,omitempty"`
+	Entries      []string `json:"entries"`
+	CharCount    int      `json:"charCount"`
+	CharLimit    int      `json:"charLimit"`
+}
+
+// memoryStats aggregates DB-level session/message counts that Memory.tsx
+// renders in its stats strip.
+type memoryStats struct {
+	TotalSessions int `json:"totalSessions"`
+	TotalMessages int `json:"totalMessages"`
+}
+
+// memoryResponse is the shape Memory.tsx expects from GET /v1/memory.
+type memoryResponse struct {
+	Memory memorySection `json:"memory"`
+	User   memorySection `json:"user"`
+	Stats  memoryStats   `json:"stats"`
+}
+
+// handleMemoryGet composes the nested {memory, user, stats} payload the UI
+// expects. Keeps internal/memory/ pure disk-I/O; the DB join lives here.
 func (s *Server) handleMemoryGet(w http.ResponseWriter, r *http.Request) {
 	state, err := memory.ReadMemory(s.profile)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, state)
+
+	// Last-modified timestamps from disk. Best-effort: any stat failure
+	// yields nil rather than erroring out the whole response.
+	memModified := statFileModified(paths.MemoryFile(s.profile))
+	userModified := statFileModified(paths.UserFile(s.profile))
+
+	// DB stats are best-effort too — if the DB blows up we still return
+	// the disk data and zeros for stats (better than a 500).
+	var totalSessions, totalMessages int
+	if s.db != nil {
+		totalSessions, _ = s.db.CountSessions()
+		totalMessages, _ = s.db.CountMessages()
+	}
+
+	resp := memoryResponse{
+		Memory: memorySection{
+			Content:      strings.Join(state.Entries, memory.EntryDelimiter),
+			Exists:       memModified != nil,
+			LastModified: memModified,
+			Entries:      state.Entries,
+			CharCount:    state.CharCount,
+			CharLimit:    state.CharLimit,
+		},
+		User: memorySection{
+			Content:      state.UserProfile,
+			Exists:       userModified != nil,
+			LastModified: userModified,
+			Entries:      nil,
+			CharCount:    state.UserCharCount,
+			CharLimit:    state.UserCharLimit,
+		},
+		Stats: memoryStats{
+			TotalSessions: totalSessions,
+			TotalMessages: totalMessages,
+		},
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// statFileModified returns the file's ModTime as Unix millis, or nil if the
+// file doesn't exist / isn't stat-able.
+func statFileModified(path string) *int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	ms := fi.ModTime().UnixMilli()
+	return &ms
+}
+
+// operationResult is the shape the desktop UI's OperationResult type expects
+// from mutation endpoints. Using {success: bool, error?: string} instead of
+// a status string lets the React components do a single boolean check rather
+// than parsing status codes + strings.
+type operationResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+func writeOK(w http.ResponseWriter) {
+	writeJSON(w, http.StatusOK, operationResult{Success: true})
+}
+
+func writeOpError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, operationResult{Success: false, Error: msg})
 }
 
 // handleMemoryAdd appends a new entry to MEMORY.md.
@@ -421,18 +602,18 @@ func (s *Server) handleMemoryAdd(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeOpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if body.Content == "" {
-		writeError(w, http.StatusBadRequest, "content is required")
+		writeOpError(w, http.StatusBadRequest, "content is required")
 		return
 	}
 	if err := memory.AddEntry(body.Content, s.profile); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
+	writeOK(w)
 }
 
 // handleMemoryUpdate replaces the memory entry at the given zero-based index.
@@ -446,14 +627,14 @@ func (s *Server) handleMemoryUpdate(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeOpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if err := memory.UpdateEntry(idx, body.Content, s.profile); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeOK(w)
 }
 
 // handleMemoryDelete removes the memory entry at the given zero-based index.
@@ -463,10 +644,10 @@ func (s *Server) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := memory.RemoveEntry(idx, s.profile); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeOK(w)
 }
 
 // =============================================================================
@@ -539,23 +720,34 @@ func (s *Server) handleToolToggle(w http.ResponseWriter, r *http.Request) {
 // Skill handlers
 // =============================================================================
 
-// handleSkillList returns all installed and bundled skills combined.
-func (s *Server) handleSkillList(w http.ResponseWriter, r *http.Request) {
+// handleSkillListInstalled returns only installed skills for the active
+// profile. Underscore-prefixed reserved subdirs (_proposed, _archived, …)
+// are excluded by walkSkillsDir in the skills package.
+func (s *Server) handleSkillListInstalled(w http.ResponseWriter, r *http.Request) {
 	installed, err := skills.ListInstalled(s.profile)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if installed == nil {
+		installed = []skills.Skill{}
+	}
+	writeJSON(w, http.StatusOK, installed)
+}
+
+// handleSkillListBundled returns only bundled skills (shipped with the binary).
+// Feeds the UI's "Browse" tab that lets the user pick a bundled skill to
+// install into their profile.
+func (s *Server) handleSkillListBundled(w http.ResponseWriter, _ *http.Request) {
 	bundled, err := skills.ListBundled()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	combined := append(installed, bundled...)
-	if combined == nil {
-		combined = []skills.Skill{}
+	if bundled == nil {
+		bundled = []skills.Skill{}
 	}
-	writeJSON(w, http.StatusOK, combined)
+	writeJSON(w, http.StatusOK, bundled)
 }
 
 // handleSkillInstall installs a skill by id for the active profile.
@@ -827,21 +1019,22 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, _ *http.Request) {
 }
 
 // =============================================================================
-// Claw3D handlers
+// Office handlers (backed by internal/claw3d — "office workspace" abstraction
+// over the Claw3D engine)
 // =============================================================================
 
-// handleClaw3dStatus returns the current Claw3D installation and process state.
-func (s *Server) handleClaw3dStatus(w http.ResponseWriter, _ *http.Request) {
+// handleOfficeStatus returns the current Office installation and process state.
+func (s *Server) handleOfficeStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, claw3d.Status())
 }
 
-// handleClaw3dSetup clones the upstream Claw3D repo and runs npm install.
+// handleOfficeSetup clones the upstream engine repo and runs npm install.
 // Streams progress lines as newline-delimited JSON objects:
 //
 //	{"progress": "..."}
 //
 // Ends with {"done": true} on success or {"error": "..."} on failure.
-func (s *Server) handleClaw3dSetup(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleOfficeSetup(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
 
@@ -867,8 +1060,8 @@ func (s *Server) handleClaw3dSetup(w http.ResponseWriter, _ *http.Request) {
 	flush()
 }
 
-// handleClaw3dStart starts both the dev server and the adapter.
-func (s *Server) handleClaw3dStart(w http.ResponseWriter, _ *http.Request) {
+// handleOfficeStart starts both the dev server and the adapter.
+func (s *Server) handleOfficeStart(w http.ResponseWriter, _ *http.Request) {
 	if err := claw3d.StartDevServer(); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -880,8 +1073,8 @@ func (s *Server) handleClaw3dStart(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleClaw3dStop stops both the dev server and the adapter.
-func (s *Server) handleClaw3dStop(w http.ResponseWriter, _ *http.Request) {
+// handleOfficeStop stops both the dev server and the adapter.
+func (s *Server) handleOfficeStop(w http.ResponseWriter, _ *http.Request) {
 	devErr := claw3d.StopDevServer()
 	adpErr := claw3d.StopAdapter()
 	if devErr != nil {
@@ -893,6 +1086,34 @@ func (s *Server) handleClaw3dStop(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleOfficeLogs returns recent log lines from the office engine.
+// Stub: currently returns an empty log payload; replace once claw3d exposes
+// a log ring-buffer. Keeps the UI's Office screen from 404-ing.
+func (s *Server) handleOfficeLogs(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"logs": ""})
+}
+
+// handleOfficeConfig returns the office engine's effective config.
+// Stub: returns what's knowable without a running engine. UI uses this to
+// populate the "configured port" display.
+func (s *Server) handleOfficeConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"port":      3000,
+		"installed": claw3d.Status().Installed,
+	})
+}
+
+// handleOfficeSetupProgress returns the in-progress setup state when polled.
+// Stub: returns "idle" — the real setup flow uses the NDJSON stream at
+// /v1/office/setup. This endpoint exists so the UI's optimistic polling
+// doesn't 404 during normal operation.
+func (s *Server) handleOfficeSetupProgress(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"state":    "idle",
+		"progress": 0,
+	})
 }
 
 // =============================================================================
