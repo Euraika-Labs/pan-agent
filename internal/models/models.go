@@ -64,25 +64,20 @@ type defaultModel struct {
 	baseURL  string
 }
 
-// defaultModels seeds models.json on first run so the setup wizard has a
-// few ready-to-pick entries. Provider+baseURL determines routing; the user
-// brings their own API key via .env.
+// defaultModels is intentionally empty. Pan-Agent ships with zero hardcoded
+// model assumptions — users configure models via the setup wizard (which
+// calls POST /v1/models/sync against their chosen provider's /v1/models
+// endpoint) or by adding entries directly through POST /v1/models.
 //
-// Only entries tagged with a specific baseURL (e.g. Regolo's) are routed
-// to that provider's catalog — blank baseURL means "fall back to whatever
-// the profile config sets for this provider" (Anthropic / OpenAI
-// direct keys).
-//
-// Regolo entry is the strongest tool-use model confirmed on the platform
-// as of 2026-04-14 (see docs/manual/Part II - Components/10 - Regolo Model
-// Compatibility.md). Earlier entries for kimi-k2-0905 were removed because
-// Regolo's catalog does not include any kimi-* model.
-var defaultModels = []defaultModel{
-	{name: "Claude 3.5 Sonnet", provider: "anthropic", model: "claude-3-5-sonnet-20241022", baseURL: ""},
-	{name: "GPT-4o", provider: "openai", model: "gpt-4o", baseURL: ""},
-	{name: "Qwen3.5-122B (Regolo)", provider: "regolo", model: "qwen3.5-122b", baseURL: "https://api.regolo.ai/v1"},
-	{name: "gpt-oss-120b (Regolo)", provider: "regolo", model: "gpt-oss-120b", baseURL: "https://api.regolo.ai/v1"},
-}
+// Why empty:
+//   - Any hardcoded model goes stale (see kimi-k2-0905 → dropped 2026-04-14
+//     when Regolo stopped serving it).
+//   - Seeding provider-specific models assumes which provider the user
+//     prefers; we don't know until they set REGOLO_API_KEY / OPENAI_API_KEY
+//     / ANTHROPIC_API_KEY in .env.
+//   - The setup wizard's "sync from provider" flow is the canonical way
+//     to populate the list, and it reflects the provider's live catalog.
+var defaultModels = []defaultModel{}
 
 // ---------------------------------------------------------------------------
 // File I/O helpers
@@ -166,9 +161,10 @@ func seedDefaults() ([]SavedModel, error) {
 // Public API
 // ---------------------------------------------------------------------------
 
-// List returns all saved models.  If models.json does not exist yet the three
-// default models are written and returned (same behaviour as the TypeScript
-// listModels function).
+// List returns all saved models. If models.json does not exist yet an empty
+// file is created and an empty slice returned. Callers (setup wizard, the
+// React ModelList screen) are expected to trigger POST /v1/models/sync
+// against the user's chosen provider to populate the list.
 func List() ([]SavedModel, error) {
 	mu.Lock()
 	defer mu.Unlock()

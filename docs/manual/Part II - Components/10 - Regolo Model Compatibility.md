@@ -31,14 +31,16 @@ Captured 2026-04-14 against Regolo production endpoints, after the gpt-oss tool-
 
 ## Hardcoded seed list
 
-`internal/models/models.go` ships three `defaultModels` seeded into `models.json` on first run. After this matrix test, the list is:
+**None.** As of 2026-04-14, `internal/models/models.go:defaultModels` is intentionally empty. Pan-Agent ships with zero hardcoded model assumptions.
 
-- **Claude 3.5 Sonnet** (`provider: anthropic`, `baseURL: ""`) — BYO Anthropic key
-- **GPT-4o** (`provider: openai`, `baseURL: ""`) — BYO OpenAI key
-- **Qwen3.5-122B (Regolo)** (`provider: regolo`, Regolo URL) — strongest Regolo tool-use model
-- **gpt-oss-120b (Regolo)** (`provider: regolo`, Regolo URL) — fast + free Regolo tool-use model
+Why: every hardcoded model entry eventually goes stale (e.g. `kimi-k2-0905` was seeded as a Regolo model but Regolo never actually served it; users picking it from the UI hit "Invalid model name"). Seeding provider-specific models also presupposes which provider the user prefers, which we don't know until they set API keys in `.env`.
 
-Previously the list also contained **Kimi K2** tagged as Regolo, which was a stale entry (Regolo has never served kimi-k2-0905). Removed.
+On first run, `models.json` is written as an empty list. The setup wizard (first-run onboarding) is responsible for calling `POST /v1/models/sync` against the user's chosen provider's `/v1/models` endpoint — the returned catalog reflects what the provider actually serves, not what we hope they serve.
+
+Models previously seeded and subsequently removed:
+- `claude-3-5-sonnet-20241022` (Anthropic BYO-key)
+- `gpt-4o` (OpenAI BYO-key)
+- `kimi-k2-0905` (Regolo — stale, Regolo doesn't serve any kimi-* model)
 
 ## Observations
 
