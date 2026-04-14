@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -142,22 +143,33 @@ func (s *Server) runCuratorAgent(ctx context.Context, profile string) (SkillAgen
 
 	rep = runSkillAgentLoop(ctx, client, embedSkills.CuratorMD, userMsg, []llm.ToolDef{toolDef},
 		func(ctx context.Context, tc llm.ToolCall) string {
+			log.Printf("[curator] → %s(%s)", tc.Function.Name, truncate(tc.Function.Arguments, 180))
 			if tc.Function.Name != tool.Name() {
 				return fmt.Sprintf(`{"error": "curator can only call %s, got %s"}`, tool.Name(), tc.Function.Name)
 			}
 			res, err := tool.Execute(ctx, json.RawMessage(tc.Function.Arguments))
 			if err != nil {
+				log.Printf("[curator]   ← err: %v", err)
 				return fmt.Sprintf(`{"error": %q}`, err.Error())
 			}
 			if res.Error != "" {
+				log.Printf("[curator]   ← tool err: %s", res.Error)
 				return fmt.Sprintf(`{"error": %q}`, res.Error)
 			}
+			log.Printf("[curator]   ← ok: %s", truncate(res.Output, 180))
 			return res.Output
 		},
 		rep,
 	)
 	rep.FinishedAt = time.Now().UnixMilli()
 	return rep, nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // runSkillAgentLoop is the shared LLM agent loop used by both reviewer and

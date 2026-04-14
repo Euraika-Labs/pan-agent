@@ -62,14 +62,55 @@ func (SkillCuratorTool) Parameters() json.RawMessage {
 }
 
 type skillCuratorParams struct {
-	Action       string                 `json:"action"`
-	SkillID      string                 `json:"skill_id"`
-	SkillIDs     []string               `json:"skill_ids"`
-	NewContent   string                 `json:"new_content"`
-	Consolidated string                 `json:"consolidated"`
-	NewCategory  string                 `json:"new_category"`
-	NewSkills    []skills.SplitProposal `json:"new_skills"`
-	Reason       string                 `json:"reason"`
+	Action       string          `json:"action"`
+	SkillID      string          `json:"skill_id"`
+	SkillIDs     json.RawMessage `json:"skill_ids"`  // array or JSON-stringified array
+	NewContent   string          `json:"new_content"`
+	Consolidated string          `json:"consolidated"`
+	NewCategory  string          `json:"new_category"`
+	NewSkills    json.RawMessage `json:"new_skills"` // array or JSON-stringified array
+	Reason       string          `json:"reason"`
+}
+
+// parseStringArray accepts either a JSON array of strings or a JSON string
+// whose body is a JSON array of strings. LLMs (notably Llama-class models)
+// sometimes stringify array params even when the schema calls for a native
+// array — we tolerate both shapes rather than rejecting the call.
+func parseStringArray(raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return arr, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("expected array of strings, got %s", string(raw))
+	}
+	if err := json.Unmarshal([]byte(s), &arr); err != nil {
+		return nil, fmt.Errorf("stringified skill_ids is not a valid JSON array: %w", err)
+	}
+	return arr, nil
+}
+
+// parseSplitProposals — same tolerance for new_skills.
+func parseSplitProposals(raw json.RawMessage) ([]skills.SplitProposal, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var arr []skills.SplitProposal
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return arr, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("expected array of split proposals, got %s", string(raw))
+	}
+	if err := json.Unmarshal([]byte(s), &arr); err != nil {
+		return nil, fmt.Errorf("stringified new_skills is not a valid JSON array of objects: %w", err)
+	}
+	return arr, nil
 }
 
 func (t SkillCuratorTool) Execute(_ context.Context, params json.RawMessage) (*Result, error) {
@@ -101,13 +142,17 @@ func (t SkillCuratorTool) Execute(_ context.Context, params json.RawMessage) (*R
 		return curatorOK(meta, scan)
 
 	case "propose_merge":
-		if len(p.SkillIDs) < 2 {
+		skillIDs, err := parseStringArray(p.SkillIDs)
+		if err != nil {
+			return &Result{Error: err.Error()}, nil
+		}
+		if len(skillIDs) < 2 {
 			return &Result{Error: "propose_merge requires ≥2 skill_ids"}, nil
 		}
 		if p.Consolidated == "" {
 			return &Result{Error: "propose_merge requires consolidated"}, nil
 		}
-		meta, scan, err := mgr.ProposeCuratorMerge(p.SkillIDs, p.Consolidated, p.Reason, "curator")
+		meta, scan, err := mgr.ProposeCuratorMerge(skillIDs, p.Consolidated, p.Reason, "curator")
 		if err != nil {
 			return &Result{Error: err.Error()}, nil
 		}
@@ -117,10 +162,14 @@ func (t SkillCuratorTool) Execute(_ context.Context, params json.RawMessage) (*R
 		if p.SkillID == "" {
 			return &Result{Error: "propose_split requires skill_id"}, nil
 		}
-		if len(p.NewSkills) < 2 {
+		newSkills, err := parseSplitProposals(p.NewSkills)
+		if err != nil {
+			return &Result{Error: err.Error()}, nil
+		}
+		if len(newSkills) < 2 {
 			return &Result{Error: "propose_split requires ≥2 entries in new_skills"}, nil
 		}
-		meta, scan, err := mgr.ProposeCuratorSplit(p.SkillID, p.NewSkills, p.Reason, "curator")
+		meta, scan, err := mgr.ProposeCuratorSplit(p.SkillID, newSkills, p.Reason, "curator")
 		if err != nil {
 			return &Result{Error: err.Error()}, nil
 		}
