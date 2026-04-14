@@ -451,7 +451,7 @@ Pan-Agent is the spiritual successor to [Pan Desktop](https://git.euraika.net/eu
 
 <div align="center">
 
-**Built by [Euraika Labs](https://euraika.net)** · Brussels, Belgium 🇧🇪 / 🇪🇺
+**Built by [Euraika Labs](https://euraika.net)** · Tienen, Belgium 🇧🇪 / 🇪🇺
 
 [Website](https://euraika.net) · [Issues](https://github.com/Euraika-Labs/pan-agent/issues) · [Releases](https://github.com/Euraika-Labs/pan-agent/releases)
 
