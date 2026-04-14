@@ -37,13 +37,25 @@ const (
 )
 
 // Claw3dStatus describes the current state of the Claw3D installation.
+//
+// Field tags use camelCase because the UI's Claw3dStatus interface
+// (desktop/src/screens/Office/Office.tsx) reads .running / .wsUrl /
+// .portInUse / .installed directly; Go's default PascalCase (Running,
+// WsURL) produced undefined values and stuck the Office screen on
+// "Stopped" even while the adapter was happily running.
+//
+// `Running` is an aggregate "dev + adapter both up" boolean. We keep the
+// individual DevServerRunning / AdapterRunning fields for diagnostics.
 type Claw3dStatus struct {
 	Cloned           bool   `json:"cloned"`
 	Installed        bool   `json:"installed"`
-	DevServerRunning bool   `json:"dev_server_running"`
-	AdapterRunning   bool   `json:"adapter_running"`
+	Running          bool   `json:"running"`
+	DevServerRunning bool   `json:"devServerRunning"`
+	AdapterRunning   bool   `json:"adapterRunning"`
 	Port             int    `json:"port"`
-	WsURL            string `json:"ws_url"`
+	PortInUse        bool   `json:"portInUse"`
+	WsURL            string `json:"wsUrl"`
+	Error            string `json:"error,omitempty"`
 }
 
 // mu guards the in-process handles.
@@ -180,13 +192,20 @@ func Status() *Claw3dStatus {
 	cloned := fileExists(filepath.Join(repoDir, "package.json"))
 	installed := fileExists(filepath.Join(repoDir, "node_modules"))
 	port := GetPort()
+	dev := isDevServerRunning()
+	adapter := isAdapterRunning()
 	return &Claw3dStatus{
 		Cloned:           cloned,
 		Installed:        installed,
-		DevServerRunning: isDevServerRunning(),
-		AdapterRunning:   isAdapterRunning(),
+		Running:          dev && adapter,
+		DevServerRunning: dev,
+		AdapterRunning:   adapter,
 		Port:             port,
-		WsURL:            GetWsURL(),
+		// PortInUse is true only when the dev port is occupied by a NOT-us
+		// process. Right now the helpers in this package don't discriminate,
+		// so we return false; wire this up when a real check lands.
+		PortInUse: false,
+		WsURL:     GetWsURL(),
 	}
 }
 
