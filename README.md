@@ -354,13 +354,27 @@ For the full reference, see [Configuration Reference](docs/manual/Part%20III%20-
 
 ## Notes
 
-### Windows SmartScreen
+### Windows SmartScreen & Defender
 
-Pan-Agent ships unsigned. Windows SmartScreen will warn:
+Pan-Agent ships **unsigned** on Windows. You will see one or both of these on first launch:
 
-> Windows protected your PC
+**SmartScreen** (`Windows protected your PC`) — click **More info** → **Run anyway**. One-time per binary.
 
-Click **More info** → **Run anyway**. This is a one-time acceptance per binary.
+**Windows Defender may flag the binary as a false positive**, typically with a generic ML-heuristic name like `Trojan:Win32/Wacatac.B!ml`. This is a known pattern with Go-built executables across the ecosystem (rclone, syncthing, lazygit, Hugo, and most Go projects hit this at some point). Pan-Agent's actual feature set — keyboard/mouse injection, screen capture, localhost HTTP server, browser automation — overlaps the capabilities Defender's heuristic engine looks for in remote-access tools. The engine is correct that the binary *can* do those things; it can't tell that it's doing them under your authorisation.
+
+**How to verify the binary is the one CI built:**
+
+Every release page lists SHA256 hashes for every artefact. After downloading, in PowerShell:
+
+```powershell
+Get-FileHash .\pan-agent-x86_64-pc-windows-msvc.exe -Algorithm SHA256
+```
+
+The hash must match the value on the [release page](https://github.com/Euraika-Labs/pan-agent/releases). If it doesn't, don't run it.
+
+**If Defender quarantines a release binary**, you can submit it for review at https://www.microsoft.com/wdsi/filesubmission — Microsoft typically whitelists confirmed-clean hashes within ~3 days. Pan-Agent maintainers do this on every release; if you hit the warning before the whitelist propagates, you'll need to either wait or restore the file from quarantine manually.
+
+This warning will go away when Pan-Agent ships code-signed installers (planned around `v1.0.0`).
 
 ### macOS Gatekeeper
 

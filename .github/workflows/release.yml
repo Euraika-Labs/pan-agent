@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -99,3 +100,185 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+  # ---------------------------------------------------------------------------
+  # Post-release: publish SHA256 hashes + open a WDSI submission checklist.
+  # Runs once after all platform releases finish — independent matrix.
+  # ---------------------------------------------------------------------------
+  post-release:
+    name: Post-release (hashes + WDSI checklist)
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release artefacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p artefacts
+          gh release download "${GITHUB_REF_NAME}" --dir artefacts --pattern '*' \
+            || { echo "no artefacts to hash; skipping"; exit 0; }
+          ls -la artefacts/
+
+      - name: Build release notes (existing + hashes + Defender note)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Capture the auto-generated release body from tauri-action.
+          gh release view "${GITHUB_REF_NAME}" --json body --jq .body > existing_body.md
+
+          # Build a hashes table from artefacts/.
+          {
+            echo
+            echo "---"
+            echo
+            echo "## Verify your download"
+            echo
+            echo "Pan-Agent ships unsigned. Verify the SHA256 hash of any binary before running it. In PowerShell:"
+            echo
+            echo '```powershell'
+            echo 'Get-FileHash .\<filename> -Algorithm SHA256'
+            echo '```'
+            echo
+            echo "| File | SHA256 |"
+            echo "|------|--------|"
+            for f in artefacts/*; do
+              [ -f "$f" ] || continue
+              name=$(basename "$f")
+              hash=$(sha256sum "$f" | cut -d' ' -f1)
+              echo "| \`$name\` | \`$hash\` |"
+            done
+            echo
+            echo "## Windows Defender false positives"
+            echo
+            echo 'Go binaries trip Defender ML-heuristic signatures (typically `Trojan:Win32/Wacatac.B!ml`). If quarantined, the binary above is the same one CI built — verify the hash and submit to Microsoft for review at https://www.microsoft.com/wdsi/filesubmission. See [README → Windows SmartScreen & Defender](https://github.com/Euraika-Labs/pan-agent/blob/main/README.md#windows-smartscreen--defender) for the full story.'
+          } > addendum.md
+
+          cat existing_body.md addendum.md > final_body.md
+          gh release edit "${GITHUB_REF_NAME}" --notes-file final_body.md
+
+      - name: Submit artefacts to VirusTotal
+        env:
+          VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: |
+          # Skip silently when no API key is configured — VT submission is
+          # nice-to-have, not blocking. Set the VIRUSTOTAL_API_KEY repo
+          # secret to enable. Free tier: 4 req/min, 500/day — fine for our
+          # 5–7 artefacts per release.
+          if [ -z "${VT_API_KEY}" ]; then
+            echo "VIRUSTOTAL_API_KEY not set; skipping VT submission"
+            echo "" > vt_results.md
+            exit 0
+          fi
+
+          {
+            echo "## VirusTotal submissions"
+            echo
+            echo "Each artefact below was uploaded to VirusTotal for cross-engine analysis. Microsoft is one of the participating vendors — getting a sample in front of their engine via VT is one of the channels that feeds back into Defender's training data."
+            echo
+            echo "| File | VirusTotal analysis |"
+            echo "|------|---------------------|"
+          } > vt_results.md
+
+          for f in artefacts/*; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            size=$(stat -c%s "$f")
+
+            # Files >32 MB need the dedicated large-file upload URL.
+            if [ "$size" -gt 33554432 ]; then
+              upload_url=$(curl -sS -H "x-apikey: ${VT_API_KEY}" \
+                https://www.virustotal.com/api/v3/files/upload_url \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"])')
+            else
+              upload_url="https://www.virustotal.com/api/v3/files"
+            fi
+
+            response=$(curl -sS -X POST -H "x-apikey: ${VT_API_KEY}" \
+              -F "file=@${f}" "${upload_url}")
+            analysis_id=$(echo "${response}" | python3 -c \
+              'import sys,json;d=json.load(sys.stdin);print(d.get("data",{}).get("id","unknown"))' \
+              2>/dev/null || echo "unknown")
+            sha256=$(sha256sum "$f" | cut -d' ' -f1)
+
+            if [ "${analysis_id}" = "unknown" ]; then
+              echo "| \`${name}\` | _submission failed_ |" >> vt_results.md
+              echo "VT submission failed for ${name}: ${response}"
+            else
+              # The /file/<sha256> URL is stable and shows analysis once VT finishes.
+              echo "| \`${name}\` | [results](https://www.virustotal.com/gui/file/${sha256}) |" >> vt_results.md
+              echo "VT submitted: ${name} → analysis ${analysis_id}"
+            fi
+
+            # Stay under the free-tier 4-req/min ceiling.
+            sleep 16
+          done
+
+      - name: Append VT results to release notes
+        if: hashFiles('vt_results.md') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Only append if VT actually ran (non-empty file).
+          if [ -s vt_results.md ]; then
+            current=$(gh release view "${GITHUB_REF_NAME}" --json body --jq .body)
+            {
+              echo "${current}"
+              echo
+              cat vt_results.md
+            } > final_body.md
+            gh release edit "${GITHUB_REF_NAME}" --notes-file final_body.md
+          fi
+
+      - name: Open WDSI submission checklist issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Build the Windows artefact checklist.
+          {
+            echo "Auto-generated checklist for the v${VERSION} release. Tick items as you complete them."
+            echo
+            echo "## Microsoft Defender false-positive submission"
+            echo
+            echo "Submit each Windows artefact at https://www.microsoft.com/wdsi/filesubmission"
+            echo
+            echo "- **Sample type**: Software developer"
+            echo '- **Detection name**: `Trojan:Win32/Wacatac.B!ml` (or whatever Defender reported — common Go-binary FPs)'
+            echo "- **Why we believe it's clean**: Go-built binary; full source at https://github.com/Euraika-Labs/pan-agent; built by GitHub Actions on a Microsoft-hosted runner; SHA256 published in the release notes."
+            echo
+            echo "Files to submit (one submission each):"
+            echo
+            ls artefacts/ 2>/dev/null | grep -iE '\.(exe|msi)$' | sed 's/^/  - [ ] /' \
+              || echo "  - _no Windows artefacts found_"
+            echo
+            echo "MS typically responds within 3 working days with whitelist confirmation."
+            echo
+            if [ -s vt_results.md ]; then
+              echo "## VirusTotal results to monitor"
+              echo
+              echo "Each release artefact was auto-submitted to VirusTotal. Check the analysis links in the release notes after ~10 min for the cross-engine verdict. Microsoft (\"Microsoft\" engine in the VT report) is the one to watch — a clean verdict from them is the best signal that the FP heuristic isn't firing on this build."
+              echo
+              echo "- [ ] Verify VT shows clean (or only FP-class detections like \`Wacatac.B!ml\`) on Microsoft's row"
+              echo
+            fi
+            echo "## Optional polish"
+            echo
+            echo "- [ ] Post release announcement (Twitter/X, Discord, etc.)"
+            echo "- [ ] Update the project status section in README if needed"
+            echo "- [ ] Verify auto-update flow upgraded clean from previous version"
+            echo
+            echo "---"
+            echo
+            echo "_This issue was opened automatically by \`.github/workflows/release.yml\`. Close when all boxes are ticked or the release is no longer the latest._"
+          } > issue_body.md
+
+          gh issue create \
+            --title "Release v${VERSION}: WDSI submission + post-release polish" \
+            --body-file issue_body.md \
+            || { echo "issue creation failed (non-fatal); body was:"; cat issue_body.md; }
