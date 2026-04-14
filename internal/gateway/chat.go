@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/approval"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/persona"
+	"github.com/euraika-labs/pan-agent/internal/skills"
+	"github.com/euraika-labs/pan-agent/internal/storage"
 	"github.com/euraika-labs/pan-agent/internal/tools"
 )
 
@@ -167,8 +171,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		systemPrompt = ""
 	}
 
-	// Build the working message slice: system + history.
-	msgs := buildMessages(systemPrompt, req.Messages)
+	// Build the working message slice: system + skills inventory + history.
+	// The skills inventory is injected as a *user* message (not in the system
+	// prompt) to preserve the LLM provider's prompt cache — the system prompt
+	// stays stable across requests, and the inventory message sits at a
+	// predictable position regardless of how many turns have happened.
+	msgs := buildMessagesWithSkills(systemPrompt, skillsInventoryMessage(s.profile), req.Messages)
 
 	// ============================================================ agent loop
 	const maxTurns = 20 // safety cap to prevent runaway loops
@@ -252,6 +260,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				sendDone(w)
 				return
 			}
+
+			// Log skill-related tool usage so the curator agent has data to
+			// work with. Best-effort: failure here must not break the chat.
+			logSkillToolUsage(s.db, sessionID, tc, result)
 
 			// Append tool result message so the model can see the outcome.
 			toolResultMsg := llm.Message{
@@ -485,4 +497,99 @@ func buildMessages(systemPrompt string, msgs []llm.Message) []llm.Message {
 	out = append(out, llm.Message{Role: "system", Content: systemPrompt})
 	out = append(out, msgs...)
 	return out
+}
+
+// buildMessagesWithSkills prepends the system prompt and a skills inventory
+// user message. The skills message comes BEFORE the conversation history so
+// it sits at a stable cache boundary — providers cache the longest stable
+// prefix, and inventory changes only when skills are installed/removed.
+func buildMessagesWithSkills(systemPrompt, skillsMsg string, msgs []llm.Message) []llm.Message {
+	out := make([]llm.Message, 0, len(msgs)+2)
+	if systemPrompt != "" {
+		out = append(out, llm.Message{Role: "system", Content: systemPrompt})
+	}
+	if skillsMsg != "" {
+		out = append(out, llm.Message{Role: "user", Content: skillsMsg})
+	}
+	out = append(out, msgs...)
+	return out
+}
+
+// skillsInventoryMessage renders a compact inventory of installed skills as a
+// single string suitable for use as the body of a user message. Returns ""
+// when there are no skills, in which case no inventory message is injected.
+func skillsInventoryMessage(profile string) string {
+	installed, err := skills.ListInstalled(profile)
+	if err != nil || len(installed) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Available skills\n\n")
+	b.WriteString("You have access to these skills via the `skill_view` tool. ")
+	b.WriteString("Load a skill by passing its id (e.g. `coding/refactor`).\n\n")
+	for _, s := range installed {
+		fmt.Fprintf(&b, "- `%s/%s` — %s\n", s.Category, s.Name, s.Description)
+	}
+	return b.String()
+}
+
+// logSkillToolUsage records skill-related tool calls in the SkillUsage table.
+// Best-effort: any failure is logged but never bubbled up. Recognised tools:
+//
+//   - skill_view   → records the loaded skill id (success/error inferred from result body)
+//   - skill_manage → records the affected skill id when present
+func logSkillToolUsage(db *storage.DB, sessionID string, tc llm.ToolCall, resultBody string) {
+	if db == nil {
+		return
+	}
+	skillID := extractSkillIDFromCall(tc)
+	if skillID == "" {
+		return
+	}
+	outcome := "success"
+	if strings.Contains(resultBody, `"error"`) {
+		outcome = "error"
+	}
+	_, err := db.LogSkillUsage(storage.SkillUsage{
+		SessionID:   sessionID,
+		SkillID:     skillID,
+		UsedAt:      time.Now().UnixMilli(),
+		Outcome:     outcome,
+		ContextHint: tc.Function.Name,
+	})
+	if err != nil {
+		log.Printf("[chat] LogSkillUsage error: %v", err)
+	}
+}
+
+// extractSkillIDFromCall pulls the skill id from a tool call's arguments JSON.
+// Both skill_view and skill_manage use the `name` parameter for the skill id
+// when operating on existing skills (`<category>/<name>` form). For
+// skill_manage(action="create"), the id is constructed from category + name.
+func extractSkillIDFromCall(tc llm.ToolCall) string {
+	if tc.Function.Name != "skill_view" && tc.Function.Name != "skill_manage" {
+		return ""
+	}
+	var args struct {
+		Name     string `json:"name"`
+		Category string `json:"category"`
+		Action   string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		return ""
+	}
+	// "create" sends category + bare name; everything else sends "<cat>/<name>".
+	if tc.Function.Name == "skill_manage" && args.Action == "create" {
+		if args.Category == "" || args.Name == "" {
+			return ""
+		}
+		if strings.Contains(args.Name, "/") {
+			return args.Name
+		}
+		return args.Category + "/" + args.Name
+	}
+	if !strings.Contains(args.Name, "/") {
+		return ""
+	}
+	return args.Name
 }

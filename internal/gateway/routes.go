@@ -70,6 +70,25 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/skills/install", s.handleSkillInstall)
 	mux.HandleFunc("POST /v1/skills/uninstall", s.handleSkillUninstall)
 
+	// ----------------------------------------------------- skill self-healing
+	// Proposal queue (reviewer agent + manual UI both consume these).
+	mux.HandleFunc("GET /v1/skills/proposals", s.handleProposalList)
+	mux.HandleFunc("GET /v1/skills/proposals/{id}", s.handleProposalGet)
+	mux.HandleFunc("POST /v1/skills/proposals/{id}/approve", s.handleProposalApprove)
+	mux.HandleFunc("POST /v1/skills/proposals/{id}/reject", s.handleProposalReject)
+
+	// History (rollback) for active skills.
+	mux.HandleFunc("GET /v1/skills/history/{category}/{name}", s.handleHistoryList)
+	mux.HandleFunc("POST /v1/skills/history/{category}/{name}/rollback", s.handleHistoryRollback)
+
+	// Usage stats per skill.
+	mux.HandleFunc("GET /v1/skills/usage/{category}/{name}", s.handleSkillUsageList)
+	mux.HandleFunc("GET /v1/skills/usage/{category}/{name}/stats", s.handleSkillUsageStats)
+
+	// Run reviewer / curator agent loops on demand.
+	mux.HandleFunc("POST /v1/skills/reviewer/run", s.handleReviewerRun)
+	mux.HandleFunc("POST /v1/skills/curator/run", s.handleCuratorRun)
+
 	// ------------------------------------------------------------------- cron
 	mux.HandleFunc("GET /v1/cron", s.handleCronList)
 	mux.HandleFunc("POST /v1/cron", s.handleCronCreate)

@@ -27,6 +27,21 @@ type ProposalMetadata struct {
 	RejectReason string   `json:"reject_reason,omitempty"`
 	ParentIDs    []string `json:"parent_ids,omitempty"`
 	SessionCtx   string   `json:"session_ctx,omitempty"`
+
+	// Intent records the action a curator proposal asks the reviewer to take.
+	// Empty for plain agent-authored "create" proposals (the default flow).
+	// Non-empty values: "refine"|"merge"|"split"|"archive"|"recategorize".
+	Intent string `json:"intent,omitempty"`
+
+	// IntentTargets lists the active-skill IDs (`<category>/<name>`) this
+	// proposal acts on. For merges/splits this can be multiple entries.
+	IntentTargets []string `json:"intent_targets,omitempty"`
+
+	// IntentNewCategory is the destination category for "recategorize" intents.
+	IntentNewCategory string `json:"intent_new_category,omitempty"`
+
+	// IntentReason is the curator's free-text justification.
+	IntentReason string `json:"intent_reason,omitempty"`
 }
 
 // Status constants.
@@ -36,6 +51,16 @@ const (
 	StatusRejected = "rejected"
 	StatusMerged   = "merged"
 	StatusArchived = "archived"
+)
+
+// Intent constants for curator-originated proposals.
+const (
+	IntentCreate        = "" // default — agent-authored brand-new skill
+	IntentRefine        = "refine"
+	IntentMerge         = "merge"
+	IntentSplit         = "split"
+	IntentArchive       = "archive"
+	IntentRecategorize  = "recategorize"
 )
 
 // TrustTier constants.
