@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -18,6 +19,27 @@ import (
 
 	"github.com/euraika-labs/pan-agent/internal/paths"
 )
+
+// validateBaseURL enforces that a user-supplied base URL is a well-formed
+// absolute http(s) URL with no embedded credentials. This is the sanitizer
+// that keeps SyncRemote from being an SSRF sink (file://, ftp://, javascript:,
+// or credential-laden URLs are rejected at the boundary).
+func validateBaseURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("base URL scheme must be http or https, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("base URL must include a host")
+	}
+	if u.User != nil {
+		return nil, fmt.Errorf("base URL must not contain credentials")
+	}
+	return u, nil
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -267,9 +289,16 @@ type remoteModel struct {
 //
 // The apiKey is sent as a Bearer token when non-empty.
 func SyncRemote(provider, baseURL, apiKey string) ([]SavedModel, error) {
-	url := strings.TrimRight(baseURL, "/") + "/models"
+	base, err := validateBaseURL(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("models: sync remote: %w", err)
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/models"
+	base.RawQuery = ""
+	base.Fragment = ""
+	endpoint := base.String()
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("models: sync remote build request: %w", err)
 	}

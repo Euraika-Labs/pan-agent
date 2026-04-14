@@ -11,11 +11,28 @@ package paths
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 	"sync"
 )
 
 const agentName = "pan-agent"
+
+// profileNameRe restricts profile names to a safe allowlist: letters, digits,
+// dash, and underscore; 1–64 chars; must start with an alphanumeric. Anything
+// else is rejected to prevent path traversal when a profile name flows into
+// filesystem paths.
+var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+
+// ValidateProfile reports whether profile is safe to use as a directory name.
+// Empty or "default" are allowed (they resolve to AgentHome).
+func ValidateProfile(profile string) bool {
+	if profile == "" || profile == "default" {
+		return true
+	}
+	return profileNameRe.MatchString(profile)
+}
 
 // agentHomeOnce ensures agentHome is computed exactly once.
 var (
@@ -81,11 +98,26 @@ func AgentHome() string {
 
 // ProfileHome returns the root directory for a named profile.
 // An empty string or "default" resolves to AgentHome.
+//
+// Profile names must match profileNameRe (alphanumeric/dash/underscore, ≤64
+// chars). Invalid names fall back to AgentHome so user-supplied taint cannot
+// produce a path outside the agent's data directory, even if a caller forgets
+// to call ValidateProfile first. The filepath.Rel containment check is a
+// belt-and-braces guard in case the regex is ever weakened.
 func ProfileHome(profile string) string {
+	if !ValidateProfile(profile) {
+		return AgentHome()
+	}
 	if profile == "" || profile == "default" {
 		return AgentHome()
 	}
-	dir := filepath.Join(AgentHome(), "profiles", profile)
+	base := filepath.Join(AgentHome(), "profiles")
+	dir := filepath.Join(base, profile)
+	rel, err := filepath.Rel(base, dir)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") ||
+		strings.ContainsRune(rel, filepath.Separator) {
+		return AgentHome()
+	}
 	mustMkdir(dir)
 	return dir
 }
