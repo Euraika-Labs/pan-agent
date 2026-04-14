@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* Project styles. assets/main.css carries the 4.8k lines of custom
+   component styles (chat-bubble-*, chat-code-block, setup-*, etc.)
+   — without this import the UI renders unstyled (white screen). */
+@import "./assets/main.css";
+
+/* Tell Tailwind v4 where to find class usages. Our components mostly
+   use custom classes defined in assets/main.css rather than Tailwind
+   utilities, so this mainly keeps Tailwind's own utilities (.flex,
+   .hidden, etc.) pruned correctly. */
+@source "./**/*.{ts,tsx,js,jsx,html}";
+
 /* Base resets for the desktop shell */
 *, *::before, *::after {
   box-sizing: border-box;

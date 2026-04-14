@@ -22,8 +22,26 @@ function useTheme(): {
       t === "dark" ||
       (t === "system" &&
         window.matchMedia("(prefers-color-scheme: dark)").matches);
+    // main.css styles via [data-theme="dark"] / [data-theme="light"] —
+    // set the attribute, not a class. Keep the .dark class toggle in
+    // sync for any Tailwind-style `dark:` variants that may be added
+    // later; costs nothing.
+    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
     document.documentElement.classList.toggle("dark", isDark);
   }
+
+  // Apply the stored theme on mount and follow system changes when in
+  // "system" mode. Without this effect, the first page load ran with
+  // whatever attribute was last left on <html> (from Tauri's default).
+  useEffect(() => {
+    setTheme(theme);
+    if (theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const listener = () => setTheme("system");
+    mq.addEventListener("change", listener);
+    return () => mq.removeEventListener("change", listener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return { theme, setTheme };
 }
