@@ -214,6 +214,47 @@ func TestGuardBlocksMaliciousProposal(t *testing.T) {
 	}
 }
 
+// TestListInstalledSkipsUnderscoreDirs is a regression for a Phase 11 bug:
+// walkSkillsDir was enumerating _proposed/, _archived/, _history/, _merged/,
+// _rejected/ as if they were regular categories, surfacing UUID-named
+// "skills" in the inventory. Confirm those dirs no longer leak.
+func TestListInstalledSkipsUnderscoreDirs(t *testing.T) {
+	withIsolatedAgentHome(t)
+	mgr := NewManager("default")
+
+	// Create one real active skill via the proper flow.
+	meta, _, err := mgr.CreateProposal("real-thing", "tools", "real",
+		EnsureFrontmatter("# real\n", "real-thing", "real"),
+		"sess", "agent")
+	if err != nil {
+		t.Fatalf("CreateProposal: %v", err)
+	}
+	if _, err := mgr.PromoteProposal(meta.ID, "", ""); err != nil {
+		t.Fatalf("PromoteProposal: %v", err)
+	}
+
+	// Create a *second* proposal that lands in _proposed/ but never gets
+	// promoted — it should NOT show up in ListInstalled.
+	if _, _, err := mgr.CreateProposal("ghost", "imaginary", "ghost",
+		EnsureFrontmatter("# ghost\n", "ghost", "ghost"),
+		"sess", "agent"); err != nil {
+		t.Fatalf("CreateProposal ghost: %v", err)
+	}
+
+	installed, err := ListInstalled("default")
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	for _, s := range installed {
+		if strings.HasPrefix(s.Category, "_") {
+			t.Errorf("ListInstalled returned reserved dir as category: %s/%s", s.Category, s.Name)
+		}
+		if s.Name == "ghost" {
+			t.Errorf("ListInstalled returned an unpromoted proposal: %s/%s", s.Category, s.Name)
+		}
+	}
+}
+
 // TestPromotionRejectsTraversalCategory ensures a malicious metadata category
 // can't escape the profile skills dir during promotion.
 func TestPromotionRejectsTraversalCategory(t *testing.T) {

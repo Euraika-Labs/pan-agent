@@ -141,6 +141,12 @@ func walkSkillsDir(root string, installed, bundled bool) ([]Skill, error) {
 			continue
 		}
 		category := catEntry.Name()
+		// Underscore-prefixed dirs are reserved for the self-healing skill
+		// system (_proposed/, _archived/, _rejected/, _merged/, _history/)
+		// and are not browsable categories.
+		if strings.HasPrefix(category, "_") {
+			continue
+		}
 		catPath := filepath.Join(root, category)
 
 		skillEntries, err := os.ReadDir(catPath)
