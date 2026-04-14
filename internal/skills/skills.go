@@ -244,10 +244,10 @@ func GetContent(path string) (string, error) {
 // The directory is created with an empty SKILL.md so that ListInstalled can
 // discover it.
 func Install(id, profile string) error {
-	if err := validateID(id); err != nil {
+	skillDir, err := resolveSkillDir(id, profile)
+	if err != nil {
 		return err
 	}
-	skillDir := filepath.Join(paths.ProfileSkillsDir(profile), filepath.FromSlash(id))
 	if err := os.MkdirAll(skillDir, 0o700); err != nil {
 		return fmt.Errorf("skills: install mkdir %s: %w", skillDir, err)
 	}
@@ -263,10 +263,10 @@ func Install(id, profile string) error {
 // Uninstall removes the skill directory for the given id from the profile's
 // skills directory.  id must be of the form "category/skill-name".
 func Uninstall(id, profile string) error {
-	if err := validateID(id); err != nil {
+	skillDir, err := resolveSkillDir(id, profile)
+	if err != nil {
 		return err
 	}
-	skillDir := filepath.Join(paths.ProfileSkillsDir(profile), filepath.FromSlash(id))
 	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
 		return fmt.Errorf("skills: skill %q not installed", id)
 	}
@@ -274,6 +274,25 @@ func Uninstall(id, profile string) error {
 		return fmt.Errorf("skills: uninstall %s: %w", skillDir, err)
 	}
 	return nil
+}
+
+// resolveSkillDir returns the absolute skill directory for (id, profile) only
+// when id passes validateID and the resolved path is contained inside the
+// profile's skills directory. The filepath.Rel containment check is the
+// canonical sanitizer that CodeQL recognizes, closing the path-traversal
+// taint flow from id → filesystem calls.
+func resolveSkillDir(id, profile string) (string, error) {
+	if err := validateID(id); err != nil {
+		return "", err
+	}
+	base := filepath.Clean(paths.ProfileSkillsDir(profile))
+	candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(id)))
+	rel, err := filepath.Rel(base, candidate)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") ||
+		strings.HasPrefix(rel, string(filepath.Separator)) {
+		return "", fmt.Errorf("skills: id %q resolves outside profile skills dir", id)
+	}
+	return candidate, nil
 }
 
 // validateID checks that id has exactly one "/" separator and no path-traversal
