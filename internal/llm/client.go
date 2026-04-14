@@ -203,9 +203,34 @@ func (c *Client) parseSSE(ctx context.Context, r io.Reader, ch chan<- StreamEven
 				}
 			}
 
-			// Tool-call deltas — accumulate across chunks
+			// Tool-call deltas — accumulate across chunks.
+			//
+			// Standard OpenAI streaming: all deltas for one tool call share
+			// the same `index`. The first delta carries `id` + `name`; later
+			// deltas just append to `arguments`.
+			//
+			// Regolo's gpt-oss-120b deployment violates this by sending
+			// argument continuations under an incremented index, fragmenting
+			// one tool call into two half-calls. Defence: when a delta has
+			// NO id AND NO name (so it can't be the start of a new call) and
+			// its announced index doesn't exist in tcAcc yet, redirect it
+			// to the most recently established index. Well-behaved providers
+			// are unaffected — their deltas either have an id/name (anchor)
+			// or their index already exists in tcAcc.
 			for _, tcd := range delta.ToolCalls {
 				idx := tcd.Index
+				isAnchor := tcd.ID != "" ||
+					(tcd.Function != nil && tcd.Function.Name != "")
+				if !isAnchor {
+					if _, exists := tcAcc[idx]; !exists {
+						for i := idx - 1; i >= 0; i-- {
+							if _, ok := tcAcc[i]; ok {
+								idx = i
+								break
+							}
+						}
+					}
+				}
 				if _, ok := tcAcc[idx]; !ok {
 					tcAcc[idx] = &ToolCall{Type: "function"}
 				}
