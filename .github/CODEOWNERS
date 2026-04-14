@@ -1,0 +1,26 @@
+# Primary code owner — default reviewer for all paths
+# (required for "Require review from Code Owners" branch protection)
+
+# Default owner for everything in the repo
+*                           @anubissbe
+
+# Go backend
+/cmd/                       @anubissbe
+/internal/                  @anubissbe
+go.mod                      @anubissbe
+go.sum                      @anubissbe
+
+# Desktop frontend
+/desktop/                   @anubissbe
+/desktop/src-tauri/         @anubissbe
+
+# CI / infra / policy — require owner review
+/.github/                   @anubissbe
+/.gitlab-ci.yml             @anubissbe
+/.golangci.yml              @anubissbe
+/SECURITY.md                @anubissbe
+/LICENSE                    @anubissbe
+
+# Docs
+/docs/                      @anubissbe
+/CLAUDE.md                  @anubissbe

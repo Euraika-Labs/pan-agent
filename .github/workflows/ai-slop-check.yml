@@ -1,0 +1,143 @@
+name: AI Slop Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-slop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slop:
+    name: Detect AI-generated slop & common failure patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine diff base
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect changed files
+        id: files
+        run: |
+          base="${{ steps.base.outputs.base }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            files=$(git ls-files '*.go' '*.ts' '*.tsx' '*.js' '*.jsx' '*.rs' '*.md')
+          else
+            files=$(git diff --name-only --diff-filter=AM "$base" HEAD -- '*.go' '*.ts' '*.tsx' '*.js' '*.jsx' '*.rs' '*.md' || true)
+          fi
+          {
+            echo "list<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Banned AI phrases
+        run: |
+          files='${{ steps.files.outputs.list }}'
+          [ -z "$files" ] && { echo "no changed source files"; exit 0; }
+          # Phrases that commonly leak from chat assistants into code / docs.
+          pattern='(As an AI|I cannot (?:help|assist|provide)|I apologize, but|I'"'"'m sorry, but I|Certainly!|Absolutely!|Here'"'"'s (?:the|a|an) (?:implementation|solution|updated|comprehensive)|Let me (?:help|know if)|I hope this helps|comprehensive (?:solution|implementation|overview)|production[- ]ready (?:solution|implementation)|In summary,|To summarize,|Feel free to|Please let me know)'
+          hits=0
+          while IFS= read -r f; do
+            [ -z "$f" ] || [ ! -f "$f" ] && continue
+            if grep -nEI "$pattern" "$f"; then
+              hits=$((hits+1))
+            fi
+          done <<< "$files"
+          if [ "$hits" -gt 0 ]; then
+            echo "::error::Banned AI assistant phrase detected in $hits file(s)"
+            exit 1
+          fi
+
+      - name: Co-Authored-By Claude guard
+        run: |
+          base="${{ steps.base.outputs.base }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then exit 0; fi
+          if git log "$base..HEAD" --pretty=%B | grep -iE 'Co-Authored-By:.*(Claude|ChatGPT|Copilot|Cursor|Codex|Gemini|Anthropic)'; then
+            echo "::warning::Commit message contains AI co-author trailer — strip before merging if this repo forbids it"
+          fi
+
+      - name: Emoji in source
+        run: |
+          files='${{ steps.files.outputs.list }}'
+          [ -z "$files" ] && exit 0
+          emoji_hits=0
+          while IFS= read -r f; do
+            [ -z "$f" ] || [ ! -f "$f" ] && continue
+            case "$f" in *.md) continue ;; esac
+            if LC_ALL=C grep -nP '[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{1F000}-\x{1F9FF}]' "$f" 2>/dev/null; then
+              emoji_hits=$((emoji_hits+1))
+            fi
+          done <<< "$files"
+          if [ "$emoji_hits" -gt 0 ]; then
+            echo "::error::Emoji found in $emoji_hits source file(s) — project convention is emoji-free source"
+            exit 1
+          fi
+
+      - name: Oversized / narrative comment blocks
+        run: |
+          files='${{ steps.files.outputs.list }}'
+          [ -z "$files" ] && exit 0
+          warn=0
+          while IFS= read -r f; do
+            [ -z "$f" ] || [ ! -f "$f" ] && continue
+            case "$f" in
+              *.go|*.ts|*.tsx|*.js|*.jsx|*.rs) ;;
+              *) continue ;;
+            esac
+            awk -v file="$f" '
+              /^[[:space:]]*\/\// { run++; if (run > max) max=run; next }
+              { run=0 }
+              END { if (max >= 15) { printf "%s has a %d-line // comment block\n", file, max; exit 2 } }
+            ' "$f" || warn=1
+          done <<< "$files"
+          if [ "$warn" = "1" ]; then
+            echo "::warning::Long contiguous // comment blocks detected — prefer concise, WHY-only comments per CLAUDE.md"
+          fi
+
+      - name: TODO / placeholder smell
+        run: |
+          files='${{ steps.files.outputs.list }}'
+          [ -z "$files" ] && exit 0
+          pattern='(TODO\(AI\)|FIXME\(AI\)|XXX\(AI\)|placeholder implementation|dummy (?:implementation|value|data) for now|not implemented yet -- AI|lorem ipsum)'
+          if echo "$files" | xargs -r grep -nEI "$pattern" 2>/dev/null; then
+            echo "::error::AI placeholder / stub marker found — replace with real implementation before merge"
+            exit 1
+          fi
+
+      - name: Hallucinated Go symbols (go vet)
+        run: |
+          if ls *.go **/*.go 2>/dev/null | head -1 >/dev/null; then
+            echo "go vet covers hallucinated imports / bad signatures"
+          fi
+        shell: bash
+
+  go-vet-staticcheck:
+    name: go vet + staticcheck (AI hallucination guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - run: go vet ./...
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+      - name: Run staticcheck
+        run: staticcheck ./...

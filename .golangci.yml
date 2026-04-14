@@ -1,0 +1,63 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+    - bodyclose
+    - rowserrcheck
+    - gosec
+    - revive
+    - gocyclo
+    - dupl
+    - nakedret
+    - prealloc
+    - nilerr
+    - errorlint
+
+linters-settings:
+  gocyclo:
+    min-complexity: 20
+  dupl:
+    threshold: 150
+  misspell:
+    locale: US
+  gosec:
+    excludes:
+      - G104 # already covered by errcheck
+      - G204 # command execution is core to tools/ pkg
+      - G304 # file ops intentional in tools/
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+      - name: package-comments
+        disabled: true
+
+issues:
+  exclude-dirs:
+    - desktop
+    - vendor
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - dupl
+        - gosec
+        - gocyclo
+        - errcheck
+    - path: internal/tools/
+      linters:
+        - gosec
+  max-issues-per-linter: 0
+  max-same-issues: 0
