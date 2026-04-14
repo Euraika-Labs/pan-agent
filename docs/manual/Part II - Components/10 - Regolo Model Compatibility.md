@@ -24,10 +24,21 @@ Captured 2026-04-14 against Regolo production endpoints, after the gpt-oss tool-
 
 | Model | Why |
 |---|---|
-| `claude-3-5-sonnet-20241022` | Not entitled on this Regolo plan (400 "Invalid model name") |
-| `gpt-4o` | Not entitled on this Regolo plan (400 "Invalid model name") |
-| `kimi-k2-0905` | Not entitled on this Regolo plan (400 "Invalid model name") |
+| `claude-3-5-sonnet-20241022` | **Not served by Regolo.** Seeded in `defaultModels` (internal/models/models.go) with `baseURL: ""` so users can point it at Anthropic's API directly with their own key. Only appeared in this matrix because `/v1/models/sync` returns the union of Regolo's catalog and the seed list. |
+| `gpt-4o` | Same — seeded for BYO OpenAI keys, not served by Regolo. |
+| `kimi-k2-0905` | **Stale seed.** Was hardcoded as a Regolo model but Regolo's catalog contains no `kimi-*` entry (18 models total, all Qwen/Llama/Mistral/gpt-oss/apertus/minimax/gemma family). Removed from `defaultModels` in commit following this matrix test. |
 | `Llama-3.1-8B-Instruct` | **Emits tool calls as plain text content** instead of structured `tool_calls` deltas — returns `{"name":"skill_curator","arguments":{"action":"list_active_with_usage"}}` in the assistant's message body. Fundamental tool-use incapability at the 8B parameter count; not fixable on our side. |
+
+## Hardcoded seed list
+
+`internal/models/models.go` ships three `defaultModels` seeded into `models.json` on first run. After this matrix test, the list is:
+
+- **Claude 3.5 Sonnet** (`provider: anthropic`, `baseURL: ""`) — BYO Anthropic key
+- **GPT-4o** (`provider: openai`, `baseURL: ""`) — BYO OpenAI key
+- **Qwen3.5-122B (Regolo)** (`provider: regolo`, Regolo URL) — strongest Regolo tool-use model
+- **gpt-oss-120b (Regolo)** (`provider: regolo`, Regolo URL) — fast + free Regolo tool-use model
+
+Previously the list also contained **Kimi K2** tagged as Regolo, which was a stale entry (Regolo has never served kimi-k2-0905). Removed.
 
 ## Observations
 

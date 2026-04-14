@@ -64,11 +64,24 @@ type defaultModel struct {
 	baseURL  string
 }
 
-// defaultModels matches the TypeScript DEFAULT_MODELS list.
+// defaultModels seeds models.json on first run so the setup wizard has a
+// few ready-to-pick entries. Provider+baseURL determines routing; the user
+// brings their own API key via .env.
+//
+// Only entries tagged with a specific baseURL (e.g. Regolo's) are routed
+// to that provider's catalog — blank baseURL means "fall back to whatever
+// the profile config sets for this provider" (Anthropic / OpenAI
+// direct keys).
+//
+// Regolo entry is the strongest tool-use model confirmed on the platform
+// as of 2026-04-14 (see docs/manual/Part II - Components/10 - Regolo Model
+// Compatibility.md). Earlier entries for kimi-k2-0905 were removed because
+// Regolo's catalog does not include any kimi-* model.
 var defaultModels = []defaultModel{
 	{name: "Claude 3.5 Sonnet", provider: "anthropic", model: "claude-3-5-sonnet-20241022", baseURL: ""},
 	{name: "GPT-4o", provider: "openai", model: "gpt-4o", baseURL: ""},
-	{name: "Kimi K2", provider: "regolo", model: "kimi-k2-0905", baseURL: "https://api.regolo.ai/v1"},
+	{name: "Qwen3.5-122B (Regolo)", provider: "regolo", model: "qwen3.5-122b", baseURL: "https://api.regolo.ai/v1"},
+	{name: "gpt-oss-120b (Regolo)", provider: "regolo", model: "gpt-oss-120b", baseURL: "https://api.regolo.ai/v1"},
 }
 
 // ---------------------------------------------------------------------------
