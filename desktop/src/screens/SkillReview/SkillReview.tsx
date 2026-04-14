@@ -106,6 +106,10 @@ function SkillReview(): React.JSX.Element {
   >(null);
   const [lastRun, setLastRun] = useState<SkillAgentReport | null>(null);
   const [error, setError] = useState<string>("");
+  // Tracks an in-flight approve/reject so double-clicks can't race: the
+  // first mutation's refresh() might otherwise resolve AFTER the second
+  // mutation's, briefly re-rendering the just-approved item.
+  const [mutating, setMutating] = useState<string | null>(null);
 
   // Load queue + compute health metrics for the sidebar.
   const refresh = useCallback(async () => {
@@ -163,6 +167,8 @@ function SkillReview(): React.JSX.Element {
   // -------------------------------------------------------------- Actions
 
   async function handleApprove(id: string): Promise<void> {
+    if (mutating) return; // double-click / refresh-race guard
+    setMutating(id);
     try {
       await fetchJSON(`/v1/skills/proposals/${id}/approve`, {
         method: "POST",
@@ -172,15 +178,19 @@ function SkillReview(): React.JSX.Element {
       await refresh();
     } catch (err) {
       setError(`Approve failed: ${err}`);
+    } finally {
+      setMutating(null);
     }
   }
 
   async function handleReject(id: string): Promise<void> {
+    if (mutating) return;
     const reason = window.prompt(
       "Reject reason (required):",
       "out of scope",
     );
     if (!reason) return;
+    setMutating(id);
     try {
       await fetchJSON(`/v1/skills/proposals/${id}/reject`, {
         method: "POST",
@@ -190,6 +200,8 @@ function SkillReview(): React.JSX.Element {
       await refresh();
     } catch (err) {
       setError(`Reject failed: ${err}`);
+    } finally {
+      setMutating(null);
     }
   }
 
@@ -476,12 +488,15 @@ function SkillReview(): React.JSX.Element {
                 <button
                   className="btn btn-primary"
                   onClick={() => handleApprove(selected.metadata.id)}
+                  disabled={mutating !== null}
                 >
-                  <Check size={14} /> Approve
+                  <Check size={14} />{" "}
+                  {mutating === selected.metadata.id ? "Approving…" : "Approve"}
                 </button>
                 <button
                   className="btn btn-secondary"
                   onClick={() => handleReject(selected.metadata.id)}
+                  disabled={mutating !== null}
                 >
                   <X size={14} /> Reject
                 </button>

@@ -173,7 +173,15 @@ func (s *Server) handleHistoryRollback(w http.ResponseWriter, r *http.Request) {
 
 // handleSkillUsageList returns recent usage rows for one skill.
 // Path: /v1/skills/usage/{category}/{name}?limit=N
+//
+// Guards s.db nil so a one-time DB-init failure doesn't cascade into a
+// process-crashing nil-deref when the SkillReview UI fan-fetches stats
+// for N skills in parallel.
 func (s *Server) handleSkillUsageList(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		writeJSON(w, http.StatusOK, []storage.SkillUsage{})
+		return
+	}
 	category := r.PathValue("category")
 	name := r.PathValue("name")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -193,6 +201,10 @@ func (s *Server) handleSkillUsageList(w http.ResponseWriter, r *http.Request) {
 
 // handleSkillUsageStats returns aggregate stats for one skill.
 func (s *Server) handleSkillUsageStats(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		writeJSON(w, http.StatusOK, storage.SkillUsageStats{})
+		return
+	}
 	category := r.PathValue("category")
 	name := r.PathValue("name")
 	stats, err := s.db.GetSkillUsageStats(category + "/" + name)

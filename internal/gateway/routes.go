@@ -393,26 +393,47 @@ func maskCredentialPool(pool map[string][]config.Credential) map[string][]config
 // suffix families common in cloud credentials.
 func isSecretEnvKey(name string) bool {
 	upper := strings.ToUpper(name)
-	// Any containing match on a secret-word substring (catches prefixed +
-	// infix variants like CUSTOMER_API_KEY_PROD or PRIVATE_KEY_BASE).
+	// Any containing match on a secret-word substring. Expanded after
+	// code review: DSN/URL/URI commonly embed credentials
+	// (postgres://user:pw@host, https://hooks.slack.com/services/T…/B…/<secret>).
+	// Cookie/JWT/Bearer/Signature are credential material. Plain KEY + APIKEY
+	// cover the bare-env case OPENAI_KEY / KEY= / APIKEY=.
 	secretTokens := []string{
 		"API_KEY",
+		"APIKEY",
 		"TOKEN",
 		"SECRET",
 		"PASSWORD",
 		"PASSWD",
 		"PRIVATE_KEY",
-		"ACCESS_KEY",   // AWS pattern
+		"ACCESS_KEY", // AWS pattern
 		"AUTH_KEY",
 		"SIGNING_KEY",
 		"ENCRYPTION_KEY",
 		"SESSION_KEY",
 		"CREDENTIAL",
+		"DATABASE_URL",
+		"REDIS_URL",
+		"POSTGRES_URL",
+		"MONGO_URI",
+		"SMTP_URL",
+		"DSN",      // SENTRY_DSN etc — DSNs embed auth
+		"WEBHOOK",  // Slack/Discord/GitHub webhook URLs are bearer-equivalent
+		"JWT",
+		"BEARER",
+		"COOKIE",
+		"SIGNATURE",
+		"SALT",
+		"HMAC",
 	}
 	for _, tok := range secretTokens {
 		if strings.Contains(upper, tok) {
 			return true
 		}
+	}
+	// Bare "KEY" as a whole env name is also a secret-by-convention.
+	if upper == "KEY" {
+		return true
 	}
 	return false
 }
