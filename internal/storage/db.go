@@ -75,6 +75,20 @@ CREATE INDEX IF NOT EXISTS messages_session_idx ON messages(session_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
     USING fts5(content, content=messages, content_rowid=id);
+
+CREATE TABLE IF NOT EXISTS skill_usage (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT    NOT NULL REFERENCES sessions(id),
+    skill_id     TEXT    NOT NULL,
+    message_id   INTEGER,
+    used_at      INTEGER NOT NULL,
+    outcome      TEXT    DEFAULT 'unknown',
+    context_hint TEXT
+);
+
+CREATE INDEX IF NOT EXISTS skill_usage_skill_idx   ON skill_usage(skill_id);
+CREATE INDEX IF NOT EXISTS skill_usage_session_idx ON skill_usage(session_id);
+CREATE INDEX IF NOT EXISTS skill_usage_used_at_idx ON skill_usage(used_at DESC);
 `
 	_, err := d.db.Exec(schema)
 	if err != nil {

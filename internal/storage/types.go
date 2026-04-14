@@ -31,3 +31,15 @@ type SearchResult struct {
 	Model        string
 	Snippet      string
 }
+
+// SkillUsage records a single invocation of a skill by a session.
+// Used for usage tracking and feeding the curator agent.
+type SkillUsage struct {
+	ID          int64  `json:"id"`
+	SessionID   string `json:"session_id"`
+	SkillID     string `json:"skill_id"` // "<category>/<name>"
+	MessageID   int64  `json:"message_id,omitempty"`
+	UsedAt      int64  `json:"used_at"`
+	Outcome     string `json:"outcome"` // "success"|"error"|"abandoned"|"unknown"
+	ContextHint string `json:"context_hint,omitempty"`
+}
