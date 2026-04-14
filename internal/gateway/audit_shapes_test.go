@@ -61,6 +61,59 @@ func TestMemoryShape(t *testing.T) {
 	if _, ok := stats["totalMessages"]; !ok {
 		t.Error("stats.totalMessages missing")
 	}
+
+	// Regression fence: memory.entries must be a list of {index, content}
+	// objects, not bare strings. UI keys its map by entry.index; strings
+	// would produce undefined keys + React warnings.
+	var mem map[string]json.RawMessage
+	if err := json.Unmarshal(got["memory"], &mem); err != nil {
+		t.Fatalf("memory: %v", err)
+	}
+	var entries []map[string]any
+	if err := json.Unmarshal(mem["entries"], &entries); err != nil {
+		t.Fatalf("entries: not a JSON array of objects: %v", err)
+	}
+	// entries may be empty on a fresh profile — that's fine. What we're
+	// pinning is the shape when items exist: each must have index + content
+	// fields. Seed one by calling the handler path once we've got data
+	// is out of scope; a type-level assertion via RawMessage is enough.
+	for i, e := range entries {
+		if _, ok := e["index"]; !ok {
+			t.Errorf("entries[%d] missing index", i)
+		}
+		if _, ok := e["content"]; !ok {
+			t.Errorf("entries[%d] missing content", i)
+		}
+	}
+}
+
+// TestToolsShape pins the Tools response to {key, label, description,
+// enabled} — matching ToolsetInfo in desktop/src/screens/Tools/Tools.tsx.
+// Previously the handler emitted {Name, Description} (PascalCase) and the
+// UI silently rendered cards with undefined keys → React key warning.
+func TestToolsShape(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/tools", nil)
+	w := httptest.NewRecorder()
+	srv.handleToolList(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var tools []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &tools); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(tools) == 0 {
+		t.Fatal("expected at least one tool registered (init of tools package)")
+	}
+	for i, e := range tools {
+		for _, field := range []string{"key", "label", "description", "enabled"} {
+			if _, ok := e[field]; !ok {
+				t.Errorf("tools[%d] missing field %q (got %v)", i, field, e)
+			}
+		}
+	}
 }
 
 // TestSkillsSplit confirms /v1/skills returns installed only and

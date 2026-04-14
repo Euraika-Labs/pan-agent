@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -517,14 +518,22 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 // Memory handlers
 // =============================================================================
 
+// memoryEntry is one indexed memory entry. The UI (Memory.tsx:5) keys its
+// map by entry.index — returning bare strings caused an "undefined key"
+// React warning during the audit.
+type memoryEntry struct {
+	Index   int    `json:"index"`
+	Content string `json:"content"`
+}
+
 // memorySection carries agent-memory or user-profile content for the UI.
 type memorySection struct {
-	Content      string   `json:"content"`
-	Exists       bool     `json:"exists"`
-	LastModified *int64   `json:"lastModified,omitempty"`
-	Entries      []string `json:"entries"`
-	CharCount    int      `json:"charCount"`
-	CharLimit    int      `json:"charLimit"`
+	Content      string        `json:"content"`
+	Exists       bool          `json:"exists"`
+	LastModified *int64        `json:"lastModified,omitempty"`
+	Entries      []memoryEntry `json:"entries"`
+	CharCount    int           `json:"charCount"`
+	CharLimit    int           `json:"charLimit"`
 }
 
 // memoryStats aggregates DB-level session/message counts that Memory.tsx
@@ -563,12 +572,20 @@ func (s *Server) handleMemoryGet(w http.ResponseWriter, r *http.Request) {
 		totalMessages, _ = s.db.CountMessages()
 	}
 
+	// Convert []string → []memoryEntry so the UI can key on entry.index
+	// rather than the string content (which would collide on duplicates
+	// and trigger React's missing-key warning).
+	entries := make([]memoryEntry, 0, len(state.Entries))
+	for i, e := range state.Entries {
+		entries = append(entries, memoryEntry{Index: i, Content: e})
+	}
+
 	resp := memoryResponse{
 		Memory: memorySection{
 			Content:      strings.Join(state.Entries, memory.EntryDelimiter),
 			Exists:       memModified != nil,
 			LastModified: memModified,
-			Entries:      state.Entries,
+			Entries:      entries,
 			CharCount:    state.CharCount,
 			CharLimit:    state.CharLimit,
 		},
@@ -576,7 +593,7 @@ func (s *Server) handleMemoryGet(w http.ResponseWriter, r *http.Request) {
 			Content:      state.UserProfile,
 			Exists:       userModified != nil,
 			LastModified: userModified,
-			Entries:      nil,
+			Entries:      []memoryEntry{},
 			CharCount:    state.UserCharCount,
 			CharLimit:    state.UserCharLimit,
 		},
@@ -716,18 +733,55 @@ func (s *Server) handlePersonaReset(w http.ResponseWriter, r *http.Request) {
 // =============================================================================
 
 // handleToolList returns all registered tools from the tools registry.
+//
+// Shape matches desktop/src/screens/Tools/Tools.tsx:4's ToolsetInfo:
+//
+//	{key, label, description, enabled}
+//
+// `key` is the canonical tool name (used as the React map key + the path
+// param for the toggle endpoint). `label` is the same name but humanised
+// for display. `enabled` defaults true — config.GetToolsEnabled could wire
+// a per-profile disable list here in future; for now all tools are always
+// available.
 func (s *Server) handleToolList(w http.ResponseWriter, r *http.Request) {
 	all := tools.All()
-	// Convert map to a stable slice of name+description objects for JSON.
-	type toolEntry struct {
-		Name        string `json:"name"`
+	type toolsetInfo struct {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
 		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
 	}
-	result := make([]toolEntry, 0, len(all))
-	for _, t := range all {
-		result = append(result, toolEntry{Name: t.Name(), Description: t.Description()})
+	// Sort for stable UI ordering.
+	keys := make([]string, 0, len(all))
+	for k := range all {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	result := make([]toolsetInfo, 0, len(keys))
+	for _, k := range keys {
+		t := all[k]
+		result = append(result, toolsetInfo{
+			Key:         t.Name(),
+			Label:       humaniseToolName(t.Name()),
+			Description: t.Description(),
+			Enabled:     true,
+		})
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// humaniseToolName turns "skill_manage" → "Skill Manage", "web_search" →
+// "Web Search". Cheap helper that keeps the UI looking tidy without
+// forcing every tool to carry a Display() method.
+func humaniseToolName(name string) string {
+	parts := strings.Split(name, "_")
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, " ")
 }
 
 // handleToolToggle enables or disables a toolset by key.
@@ -1082,16 +1136,17 @@ func (s *Server) handleOfficeSetup(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleOfficeStart starts both the dev server and the adapter.
+// Returns {success, error} matching the UI's OperationResult shape.
 func (s *Server) handleOfficeStart(w http.ResponseWriter, _ *http.Request) {
 	if err := claw3d.StartDevServer(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeOpError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if err := claw3d.StartAdapter(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeOpError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeOK(w)
 }
 
 // handleOfficeStop stops both the dev server and the adapter.
@@ -1099,14 +1154,14 @@ func (s *Server) handleOfficeStop(w http.ResponseWriter, _ *http.Request) {
 	devErr := claw3d.StopDevServer()
 	adpErr := claw3d.StopAdapter()
 	if devErr != nil {
-		writeError(w, http.StatusInternalServerError, devErr.Error())
+		writeOpError(w, http.StatusInternalServerError, devErr.Error())
 		return
 	}
 	if adpErr != nil {
-		writeError(w, http.StatusInternalServerError, adpErr.Error())
+		writeOpError(w, http.StatusInternalServerError, adpErr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeOK(w)
 }
 
 // handleOfficeLogs returns recent log lines from the office engine.
