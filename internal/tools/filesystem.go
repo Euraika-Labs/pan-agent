@@ -125,7 +125,7 @@ func (FilesystemTool) opRead(p filesystemParams) (*Result, error) {
 func (FilesystemTool) opWrite(p filesystemParams, append_ bool) (*Result, error) {
 	// Ensure parent directory exists.
 	if dir := filepath.Dir(p.Path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return &Result{Error: fmt.Sprintf("cannot create parent directory: %v", err)}, nil
 		}
 	}
@@ -137,7 +137,7 @@ func (FilesystemTool) opWrite(p filesystemParams, append_ bool) (*Result, error)
 		flag |= os.O_TRUNC
 	}
 
-	f, err := os.OpenFile(p.Path, flag, 0o644)
+	f, err := os.OpenFile(p.Path, flag, 0o600)
 	if err != nil {
 		return &Result{Error: err.Error()}, nil
 	}
@@ -235,6 +235,11 @@ func (FilesystemTool) opSearch(p filesystemParams) (*Result, error) {
 			return nil
 		}
 
+		// #nosec G122 -- agent-driven recursive grep across an
+		// already-resolved root. Symlink TOCTOU is not in the threat
+		// model: an attacker who can swap files mid-walk has already
+		// won. The approval gate on the filesystem tool is the safety
+		// boundary.
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			// Binary or unreadable files are skipped silently.
@@ -283,7 +288,7 @@ func (FilesystemTool) opSearch(p filesystemParams) (*Result, error) {
 }
 
 func (FilesystemTool) opMkdir(p filesystemParams) (*Result, error) {
-	if err := os.MkdirAll(p.Path, 0o755); err != nil {
+	if err := os.MkdirAll(p.Path, 0o750); err != nil {
 		return &Result{Error: err.Error()}, nil
 	}
 	return &Result{Output: fmt.Sprintf("directory created: %s", p.Path)}, nil

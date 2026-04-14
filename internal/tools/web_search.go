@@ -116,6 +116,9 @@ type tavilyResponse struct {
 }
 
 func tavilySearch(ctx context.Context, apiKey, query string, maxResults int) ([]searchResult, error) {
+	// #nosec G117 -- tavilyRequest.APIKey IS the Tavily request body field
+	// for their authenticated /search endpoint; marshalling it is the
+	// intended use, not a credential leak.
 	body, err := json.Marshal(tavilyRequest{
 		APIKey:      apiKey,
 		Query:       query,
