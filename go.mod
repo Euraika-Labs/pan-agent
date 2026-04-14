@@ -6,7 +6,7 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
-	github.com/jezek/xgb v1.1.0
+	github.com/jezek/xgb v1.3.0
 	github.com/kbinani/screenshot v0.0.0-20230812210009-b87d31814237
 	github.com/mymmrac/telego v1.8.0
 	github.com/slack-go/slack v0.22.0
