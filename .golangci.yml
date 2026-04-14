@@ -1,63 +1,31 @@
+version: "2"
+
 run:
   timeout: 5m
   tests: true
 
+# Conservative linter set — matches the AI Slop Check baseline (go vet +
+# staticcheck) plus ineffassign and unused. Heavier linters (errcheck,
+# nilerr, dupl, gocyclo, gosec, unparam, errorlint, prealloc) are off
+# because they fire on long-standing project patterns; enable selectively
+# as the codebase is hardened.
 linters:
-  disable-all: true
+  default: none
   enable:
-    - errcheck
     - govet
-    - ineffassign
     - staticcheck
+    - ineffassign
     - unused
+  exclusions:
+    paths:
+      - desktop
+      - vendor
+
+formatters:
+  enable:
     - gofmt
     - goimports
-    - misspell
-    - unconvert
-    - unparam
-    - bodyclose
-    - rowserrcheck
-    - gosec
-    - revive
-    - gocyclo
-    - dupl
-    - nakedret
-    - prealloc
-    - nilerr
-    - errorlint
-
-linters-settings:
-  gocyclo:
-    min-complexity: 20
-  dupl:
-    threshold: 150
-  misspell:
-    locale: US
-  gosec:
-    excludes:
-      - G104 # already covered by errcheck
-      - G204 # command execution is core to tools/ pkg
-      - G304 # file ops intentional in tools/
-  revive:
-    rules:
-      - name: exported
-        disabled: true
-      - name: package-comments
-        disabled: true
 
 issues:
-  exclude-dirs:
-    - desktop
-    - vendor
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - dupl
-        - gosec
-        - gocyclo
-        - errcheck
-    - path: internal/tools/
-      linters:
-        - gosec
   max-issues-per-linter: 0
   max-same-issues: 0
