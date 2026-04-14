@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="desktop/src/assets/icon.png" alt="Pan-Agent" width="128" height="128">
+<img src="panagent.png" alt="Pan-Agent" width="128" height="128">
 
 # Pan-Agent
 
