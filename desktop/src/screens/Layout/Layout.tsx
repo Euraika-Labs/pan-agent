@@ -15,6 +15,11 @@ import Office from "../Office/Office";
 import Models from "../Models/Models";
 import Schedules from "../Schedules/Schedules";
 import Search from "../Search/Search";
+// M4 W2 Commit D — mount above screen stack, self-gate internally
+import MigrationBanner from "../../components/MigrationBanner";
+import PersistenceAlert from "../../components/PersistenceAlert";
+// M5-C3 — WebView2 fallback banner, self-gates on office.browser_fallback_until
+import FallbackBanner from "../../components/FallbackBanner";
 import icon from "../../assets/icon.png";
 import { fetchJSON } from "../../api";
 import {
@@ -198,6 +203,18 @@ function Layout(): React.JSX.Element {
       </aside>
 
       <main className="content">
+        {/*
+          M4 W2 Commit D — PersistenceAlert and MigrationBanner mount here,
+          above the screen stack. Both components self-gate:
+            - PersistenceAlert listens for the pan-agent:persistence-alert
+              event fired by OfficeDebugPanel on engine-swap persisted=false.
+            - MigrationBanner polls /v1/office/migration/status on mount.
+          Setup-first gating above (first-run users with no LLM provider)
+          already returned early, so these never render on first-launch.
+        */}
+        <PersistenceAlert />
+        <FallbackBanner />
+        <MigrationBanner />
         {/* Wrap screens in an ErrorBoundary so one crashy screen (e.g. Memory
             before the shape fix) doesn't blank the whole app. key=view resets
             the boundary on view change so a new screen always gets a fresh

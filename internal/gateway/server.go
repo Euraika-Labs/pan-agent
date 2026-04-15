@@ -11,12 +11,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/approval"
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/llm"
+	"github.com/euraika-labs/pan-agent/internal/paths"
 	"github.com/euraika-labs/pan-agent/internal/storage"
 )
 
@@ -95,13 +97,32 @@ func New(addr string, db *storage.DB, profile string) *Server {
 // Start begins accepting HTTP connections. It blocks until the server stops
 // (including after a graceful Stop). The only "expected" non-error return is
 // http.ErrServerClosed after a clean shutdown.
+//
+// M5 addition: write the current process PID to paths.PidFile() right after
+// the listen succeeds. This is consumed by:
+//   - chaos tests (M5-C2) to target the gateway for SIGKILL scenarios.
+//   - `pan-agent doctor --switch-engine` (M6-C1) to confirm an instance is
+//     running before POSTing to /v1/office/engine.
+// The write is best-effort: a failure to write the PID file logs a warning
+// but does not block the listener. A crash later leaves a stale file which
+// doctor/chaos callers must validate (os.FindProcess + signal 0) anyway.
 func (s *Server) Start() error {
 	ln, err := net.Listen("tcp", s.Addr)
 	if err != nil {
-		return fmt.Errorf("gateway: listen %s: %w", s.Addr, err)
+		return fmt.Errorf("gateway: listen %s: %w%s", s.Addr, err, portHolderHint(s.Addr))
+	}
+	if err := writePidFile(); err != nil {
+		fmt.Fprintf(os.Stderr, "pan-agent: warning: PID file write failed: %v\n", err)
 	}
 	fmt.Printf("pan-agent API listening on http://%s\n", s.Addr)
 	return s.httpServer.Serve(ln)
+}
+
+// writePidFile serializes os.Getpid() to paths.PidFile(). Mode 0o644 so the
+// same user can read it back; we do not try to clean it up on shutdown
+// because the process-watch + signal-0 probe handles stale files correctly.
+func writePidFile() error {
+	return os.WriteFile(paths.PidFile(), []byte(strconv.Itoa(os.Getpid())), 0o644)
 }
 
 // Stop gracefully shuts down the server. It waits for in-flight requests to

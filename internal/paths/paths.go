@@ -45,7 +45,19 @@ var (
 //   - Windows: %LOCALAPPDATA%\pan-agent
 //   - macOS:   ~/Library/Application Support/pan-agent
 //   - Linux:   ~/.local/share/pan-agent
+//
+// Test escape hatch: if PAN_AGENT_HOME is set, its value is returned
+// verbatim without caching. This lets tests use t.Setenv + t.TempDir()
+// for isolation; without it, tests that write through
+// config.SetProfileEnvValue or memory.AddEntry would pollute the real
+// LOCALAPPDATA directory (we got bitten by exactly this —
+// TestConfigMasksSecrets overwrote the user's real REGOLO_API_KEY, and
+// memory tests left test_* profile directories behind).
 func AgentHome() string {
+	if override := os.Getenv("PAN_AGENT_HOME"); override != "" {
+		mustMkdir(override)
+		return override
+	}
 	agentHomeOnce.Do(func() {
 		var base string
 
@@ -161,6 +173,31 @@ func ModelsFile() string {
 // AuthFile returns the path to auth.json.
 func AuthFile() string {
 	return filepath.Join(dataDir(), "auth.json")
+}
+
+// PidFile returns the path to the running gateway's PID file.
+//
+// Written by the gateway at startup and read by:
+//   - chaos tests (M5-C2) to target a known parent PID for the
+//     parent-watcher kill scenario;
+//   - `pan-agent doctor` (M6-C1) for the --switch-engine flag to
+//     confirm a running instance before POSTing to /v1/office/engine.
+//
+// Sits at AgentHome root (not profile-scoped) because only one
+// gateway runs per host — same scope as state.db.
+func PidFile() string {
+	return filepath.Join(dataDir(), "pan-agent.pid")
+}
+
+// CSPViolationsLog returns the path to the CSP violations log file
+// that the /v1/office/csp-report endpoint appends to. Read by
+// `pan-agent doctor --csp-violations` (M6-C1).
+//
+// Prior to this helper, the path was duplicated between the writer
+// (internal/gateway/office_csp.go) and the would-be reader. Centralising
+// it here keeps the two commits from drifting.
+func CSPViolationsLog() string {
+	return filepath.Join(dataDir(), "csp-violations.log")
 }
 
 // SkillsDir returns the path to the installed skills directory.

@@ -29,6 +29,48 @@ import (
 // handler to that HTTP method. The {id} and {index} tokens are path parameters
 // accessible via r.PathValue("id").
 func (s *Server) registerRoutes(mux *http.ServeMux) {
+	// ------------------------------------------------- embedded Claw3D (M1+)
+	// Mounts /office/, /office/ws, /office/config.js — the first stage of
+	// the Option A integration. Coexists with legacy /v1/office/* lifecycle
+	// endpoints until office.engine=node runtime toggle retires them at 0.6.
+	// db is threaded so M2 handlers can persist agents/sessions/messages.
+	//
+	// M5 adds the strictOrigin parameter read from office.strict_origin.
+	// Default false preserves loopback-permissive behaviour; operators
+	// who expose the adapter beyond 127.0.0.1 should set it true via
+	// config.yaml to reject empty-Origin WS upgrades.
+	officeCfg := config.GetOfficeConfig(s.profile)
+	claw3d.NewAdapter("", s.db, officeCfg.StrictOrigin).Register(mux)
+
+	// ------------------------------------------------- engine toggle (M4 W1)
+	// /v1/office/engine enables runtime flip between the embedded Go
+	// adapter and the legacy Node sidecar. Drain-and-restart semantics;
+	// concurrent /office/* requests get 503 during the brief swap window.
+	initEngine(s.profile)
+	mux.HandleFunc("GET /v1/office/engine", s.handleEngineGet)
+	mux.HandleFunc("POST /v1/office/engine", s.handleEngineSwap)
+
+	// ------------------------------------------------- migration (M4 W2)
+	// One-shot import of ~/.hermes/clawd3d-history.json into SQLite.
+	// Status endpoint drives the first-launch banner; run endpoint is
+	// the banner's "Import history" button. `pan-agent migrate-office`
+	// CLI offers the same contract for headless operators.
+	mux.HandleFunc("GET /v1/office/migration/status", s.handleOfficeMigrationStatus)
+	mux.HandleFunc("POST /v1/office/migration/run", s.handleOfficeMigrationRun)
+
+	// ------------------------------------------------- CSP reporting (M4 W2 Commit C)
+	// Tauri v2 has no cspReportOnly mode. We ship enforcing CSP with a
+	// local collector at this endpoint so the 5-day dogfood window can
+	// catch violations without silent production failures. See
+	// internal/gateway/office_csp.go for the handler + 10 MB soft cap.
+	mux.HandleFunc("POST /v1/office/csp-report", s.handleCSPReport)
+
+	// ------------------------------------------------- WebView2 fallback (M5-C3)
+	// Called by desktop/src/main.tsx when the WebGL2 probe reports no
+	// usable context. Persists a 7-day skip window and returns the URL
+	// to open in the system browser. See internal/gateway/office_fallback.go.
+	mux.HandleFunc("POST /v1/office/fallback-detected", s.handleFallbackDetected)
+
 	// ------------------------------------------------------------------ chat
 	mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	mux.HandleFunc("POST /v1/chat/abort", s.handleChatAbort)
@@ -127,6 +169,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/office/stop", s.handleOfficeStop)
 	mux.HandleFunc("GET /v1/office/logs", s.handleOfficeLogs)
 	mux.HandleFunc("GET /v1/office/config", s.handleOfficeConfig)
+	mux.HandleFunc("PUT /v1/office/config", s.handleOfficeConfigPut)
 	mux.HandleFunc("GET /v1/office/setup/progress", s.handleOfficeSetupProgress)
 }
 
@@ -943,7 +986,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	env, _ := config.ReadProfileEnv(profile)
 	resp := healthResponse{
 		Gateway:         s.isGatewayRunning(),
-		Env:             env,
+		Env:             maskSecretEnv(env), // same masking as /v1/config
 		PlatformEnabled: config.GetPlatformEnabled(profile),
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -1173,13 +1216,40 @@ func (s *Server) handleOfficeLogs(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleOfficeConfig returns the office engine's effective config.
-// Stub: returns what's knowable without a running engine. UI uses this to
-// populate the "configured port" display.
 func (s *Server) handleOfficeConfig(w http.ResponseWriter, _ *http.Request) {
+	st := claw3d.Status()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"port":      3000,
-		"installed": claw3d.Status().Installed,
+		"port":      st.Port,
+		"wsUrl":     st.WsURL,
+		"installed": st.Installed,
 	})
+}
+
+// handleOfficeConfigPut updates the office engine's saved config.
+// Accepts {port?: int, wsUrl?: string}. Only fields present in the body
+// are updated; others are left as-is.
+func (s *Server) handleOfficeConfigPut(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Port  *int    `json:"port"`
+		WsURL *string `json:"wsUrl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeOpError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.Port != nil {
+		if err := claw3d.SetPort(*body.Port); err != nil {
+			writeOpError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if body.WsURL != nil {
+		if err := claw3d.SetWsURL(*body.WsURL); err != nil {
+			writeOpError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	writeOK(w)
 }
 
 // handleOfficeSetupProgress returns the in-progress setup state when polled.

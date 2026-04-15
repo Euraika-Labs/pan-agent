@@ -69,6 +69,26 @@ func RunDoctor(profile string) string {
 	_, cfgErr := os.Stat(cfgPath)
 	check("Config file present", cfgErr == nil, cfgPath)
 
+	// 6. M5 network-policy warning — flag LAN exposure without auth.
+	// pan-agent binds 127.0.0.1 by default and that's a hard assumption
+	// throughout the CSP, same-origin cookie, and rate-limiter designs.
+	// An operator who flips gateway.host to 0.0.0.0 (for reasons) AND
+	// leaves office.access_token empty is running an unauthenticated
+	// WebSocket server on their LAN — effectively giving any device on
+	// the network full agent control. We can't prevent that (some
+	// deployments need it) but doctor should loudly warn.
+	gatewayHost, _ := GetProfileValue(profile, "gateway.host")
+	gatewayHost = strings.TrimSpace(gatewayHost)
+	accessToken, _ := GetProfileValue(profile, "office.access_token")
+	accessToken = strings.TrimSpace(accessToken)
+	if gatewayHost == "0.0.0.0" && accessToken == "" {
+		check("Network policy",
+			false,
+			"gateway.host=0.0.0.0 without office.access_token — adapter is LAN-exposed and unauthenticated")
+	} else {
+		check("Network policy", true, "loopback or token-protected")
+	}
+
 	b.WriteString("\n")
 	if ok {
 		b.WriteString("All checks passed.\n")

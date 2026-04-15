@@ -1,0 +1,27 @@
+Subject: [PATCH 0002/0004] enable Next.js static export for go:embed consumption
+
+Static export requires: output:'export', images.unoptimized:true,
+trailingSlash:true, and removing async headers() (static export drops it
+silently; pan-agent's Go gateway sets CSP per-response on /office/*).
+
+---
+diff --git a/next.config.ts b/next.config.ts
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -52,12 +52,9 @@ if (process.env.NODE_ENV === "production") {
+ }
+
+ const nextConfig: NextConfig = {
+-  async headers() {
+-    return [
+-      {
+-        source: "/:path*",
+-        headers: securityHeaders,
+-      },
+-    ];
++  output: "export",
++  trailingSlash: true,
++  images: {
++    unoptimized: true,
+   },
+ };

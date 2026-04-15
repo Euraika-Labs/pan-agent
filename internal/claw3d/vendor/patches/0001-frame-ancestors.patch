@@ -1,0 +1,37 @@
+Subject: [PATCH 0001/0004] relax frame-ancestors so pan-agent Tauri shell can iframe Claw3D
+
+The pan-agent desktop application is a Tauri v2 shell running on
+tauri://localhost (prod) or http://localhost:5173 (Vite dev). Claw3D
+upstream ships Content-Security-Policy with "frame-ancestors 'self'",
+which blocks that iframe. Also relax X-Frame-Options which is legacy and
+conflicts with frame-ancestors when both are set.
+
+The pan-agent Go gateway (also on port 8642) serves both the bundle AND
+the WebSocket adapter, so permitting http://localhost:8642 as an ancestor
+covers the "user opens the bundle in a plain browser" case.
+
+---
+ next.config.ts | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/next.config.ts b/next.config.ts
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -6,7 +6,7 @@ const securityHeaders = [
+       "default-src 'self'",
+       "base-uri 'self'",
+       "form-action 'self'",
+-      "frame-ancestors 'self'",
++      "frame-ancestors 'self' tauri://localhost http://localhost:5173 http://localhost:8642",
+       "img-src 'self' data: blob: http: https:",
+       "font-src 'self' data: https:",
+       "style-src 'self' 'unsafe-inline' https:",
+@@ -27,7 +27,7 @@ const securityHeaders = [
+   },
+   {
+     key: "X-Frame-Options",
+-    value: "SAMEORIGIN",
++    value: "ALLOW-FROM http://localhost:5173",
+   },
+   {
+     key: "Permissions-Policy",

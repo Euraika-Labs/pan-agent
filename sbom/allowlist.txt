@@ -1,0 +1,16 @@
+# pan-agent SBOM copyleft allowlist (M6-C3)
+#
+# The release.yml SBOM step fails the build on any AGPL/GPL-3 hit that
+# ISN'T in this file. Add entries as plain substrings on their own line;
+# the release workflow greps sbom/*.json against this file with `grep -Fvf`
+# (fixed-string, inverse match), so each line is matched literally against
+# the JSON lines that triggered the copyleft alarm.
+#
+# Empty-for-now: 0.4.0 ships with no intentional copyleft dependencies.
+# The Go side is all MIT/Apache-2.0/BSD-3-Clause/ISC; the Node side
+# (pan-office vendored bundle) is the one to watch because npm's
+# dependency graph can sneak in unexpected licenses on upstream bumps.
+#
+# When adding an entry, include a one-line justification above it:
+#   # <reason it's acceptable>
+#   <package-name>

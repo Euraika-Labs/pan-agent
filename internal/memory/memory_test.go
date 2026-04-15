@@ -8,21 +8,18 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/paths"
 )
 
-// setupProfile creates a temporary directory and redirects AgentHome by setting
-// LOCALAPPDATA (Windows) / HOME (Unix) so that paths.MemoryFile / paths.UserFile
-// resolve inside the temp dir.
-//
-// Because paths.AgentHome is computed once via sync.Once, we cannot override it
-// mid-test.  Instead we call the memory functions with their file-level helpers
-// directly, bypassing the profile resolution, by writing the files ourselves and
-// calling the lower-level helpers.
-//
-// For the exported API (AddEntry, UpdateEntry, RemoveEntry, ReadMemory) we need a
-// real profile whose MemoryFile lives somewhere we control.  The simplest approach
-// is to point the real LOCALAPPDATA / XDG_DATA_HOME at t.TempDir() *before* the
-// sync.Once fires.  Since the once fires on first call (which may have already
-// happened in another test package), we instead exercise the functions through
-// direct file I/O using the unexported helpers and validate via the exported Read.
+// isolateAgentHome points paths.AgentHome() at t.TempDir() via the
+// PAN_AGENT_HOME env override. Every test that touches MemoryFile /
+// UserFile / ProfileHome must call this first — otherwise writes land
+// in the real %LOCALAPPDATA%\pan-agent\profiles\ and leak across runs
+// (we discovered 12 test_* directories sitting in a dev install after
+// the previous setup strategy only cleaned up the MEMORY.md file but
+// not the profile dir itself). Uses t.Setenv so restoration is
+// automatic at the end of the test.
+func isolateAgentHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("PAN_AGENT_HOME", t.TempDir())
+}
 
 // writeMemoryFile writes raw content directly to the MEMORY.md path for a profile.
 func writeMemoryFile(t *testing.T, profile, content string) {
@@ -46,8 +43,13 @@ func readRawMemory(t *testing.T, profile string) string {
 	return string(data)
 }
 
-// uniqueProfile returns a profile name that is unlikely to collide across tests.
+// uniqueProfile isolates AgentHome to a per-test temp dir and returns a
+// stable profile name. Every caller of AddEntry/UpdateEntry/ReadMemory
+// goes through this path, so wiring isolation in here ensures no memory
+// test can leak writes into the real %LOCALAPPDATA%\pan-agent directory.
 func uniqueProfile(t *testing.T) string {
+	t.Helper()
+	isolateAgentHome(t)
 	// Replace slashes in the test name that would create subdirectories.
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	return "test_" + safe

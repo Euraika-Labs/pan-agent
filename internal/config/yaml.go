@@ -82,6 +82,48 @@ func SetProfileValue(profile, key, value string) error {
 	return SetValue(paths.ConfigFile(profile), key, value)
 }
 
+// EnsureValue updates the key in place if present, or appends it to the end
+// of the file if absent. Unlike SetValue, this guarantees the key exists
+// after the call returns (assuming the file is writable). Used for 0.4.0+
+// keys that may not have been seeded by the setup wizard — without append
+// semantics, runtime config changes silently fail to persist.
+//
+// If the file does not exist, it is created with a single key:value line.
+func EnsureValue(path, key, value string) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		// Create a minimal file with just this key.
+		return safeWriteFile(path, fmt.Sprintf("%s: %q\n", key, value))
+	}
+	if err != nil {
+		return fmt.Errorf("config.EnsureValue %q: %w", key, err)
+	}
+
+	re := regexp.MustCompile(
+		`(?m)^(\s*#?\s*` + regexp.QuoteMeta(key) + `:\s*)["']?[^"'\n#]*["']?`,
+	)
+	content := string(data)
+	if re.MatchString(content) {
+		content = re.ReplaceAllString(content, `${1}"`+escapeReplacement(value)+`"`)
+	} else {
+		// Append. Ensure exactly one trailing newline before the append
+		// so the file remains well-formed regardless of prior EOF state.
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		content += fmt.Sprintf("%s: %q\n", key, value)
+	}
+	return safeWriteFile(path, content)
+}
+
+// EnsureProfileValue resolves the profile's config.yaml path and calls
+// EnsureValue. Prefer this over SetProfileValue when the key might not
+// exist yet — runtime-toggle keys that default to a compiled-in value
+// (e.g. office.engine) are the primary use case.
+func EnsureProfileValue(profile, key, value string) error {
+	return EnsureValue(paths.ConfigFile(profile), key, value)
+}
+
 // escapeReplacement prevents literal "$" in value from being interpreted as
 // regexp back-references by ReplaceAllString.
 func escapeReplacement(s string) string {

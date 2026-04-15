@@ -18,8 +18,16 @@ import (
 )
 
 // setupTestServer creates a Server with an in-memory DB for testing.
+// It also isolates paths.AgentHome() to a per-test temp dir via the
+// PAN_AGENT_HOME env override, so handlers that write to disk (profile
+// .env, MEMORY.md, skills, etc.) do not pollute the user's real
+// LOCALAPPDATA when tests run locally. This matters: a previous
+// TestConfigMasksSecrets run overwrote a developer's real Regolo API
+// key because the test seeded a fake one into the production .env.
 func setupTestServer(t *testing.T) *Server {
 	t.Helper()
+	t.Setenv("PAN_AGENT_HOME", t.TempDir())
+
 	dbPath := t.TempDir() + "/test.db"
 	db, err := storage.Open(dbPath)
 	if err != nil {

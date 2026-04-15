@@ -5,6 +5,85 @@ All notable changes to Pan-Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-15
+
+Claw3D Office embedded natively in pan-agent. The Node sidecar from 0.3.x is
+replaced by a Go adapter + static bundle served by the gateway on port 8642.
+End-to-end milestones M1–M6 land in this release. See `docs/migration-guide.md`
+for the 0.3.x → 0.4.0 upgrade path and `docs/protocol.md` for the frozen
+WebSocket contract.
+
+### Added
+- **Embedded Claw3D Office** — pre-built Next.js bundle served via `go:embed`
+  under `/office/*`; no Node runtime required on the end-user machine.
+- **Go adapter** at `internal/claw3d/adapter_server.go` implementing the full
+  26-method × 4-event Claw3D WebSocket protocol v3 (ported from the upstream
+  `hermes-gateway-adapter.js` reference). Frozen at 0.4.0; see `docs/protocol.md`.
+- **Runtime engine toggle** — `office.engine: go|node` config key with
+  drain-and-restart via `GET/POST /v1/office/engine`. Legacy Node sidecar path
+  remains as a fallback.
+- **Migration importer** — `pan-agent migrate-office` CLI ingests existing
+  `~/.hermes/clawd3d-history.json` into pan-agent's SQLite. `--dry-run`,
+  `--force`, idempotent on identical mtime.
+- **Auth polish on `/office/ws`** — per-IP token bucket (burst 20, refill
+  5/sec), 3-failure lockout for 30 seconds, optional `office.strict_origin`
+  for empty-Origin rejection.
+- **WebView2 fallback flow** — WebGL2 probe in `main.tsx` + Go handler at
+  `POST /v1/office/fallback-detected` + `FallbackBanner` component.
+  7-day `office.browser_fallback_until` window with system-browser open via
+  `@tauri-apps/plugin-shell`.
+- **CSP observability** — `POST /v1/office/csp-report` collector writes to
+  `AgentHome/csp-violations.log` (hard-capped at 10 MB). Viewable via
+  `pan-agent doctor --csp-violations`.
+- **Chaos tests** — `//go:build chaos` tagged suite under `internal/claw3d/`
+  with 2 scenarios (adapter kill, parent-process exit) + cross-platform Go
+  helper binary. Weekly CI via `.github/workflows/chaos.yml`.
+- **Real-webview E2E matrix** — WebdriverIO v7 + tauri-driver on Windows +
+  Linux, 5 specs covering the `/office/*` surface. Weekly cron +
+  `workflow_dispatch`. See `.github/workflows/e2e-real-webview.yml`.
+- **Doctor extensions** — `pan-agent doctor` gains `--json`,
+  `--csp-violations`, `--switch-engine=go|node`, `--deprecated-usage`.
+  Adds PID file status check and CSP violations log summary. Gateway writes
+  a PID file at `AgentHome/pan-agent.pid` on successful bind.
+- **Vendor-sync scheduled workflow** — `.github/workflows/vendor-sync.yml`
+  runs weekly, rebases upstream Claw3D patches, rebuilds the bundle, opens a
+  draft PR. Accompanied by `CODEOWNERS` coverage and a PR template at
+  `.github/PULL_REQUEST_TEMPLATE/vendor_sync.md`.
+- **SBOM generation in `release.yml`** — `cyclonedx-gomod` for Go and
+  `license-checker-rseidelsohn` for Node, attached as release artifacts.
+  Copyleft gate fails the build on unallowlisted AGPL/GPL-3 hits via
+  `sbom/allowlist.txt`.
+- **Documentation set** — `docs/protocol.md` (frozen WebSocket contract),
+  `docs/runbook.md` (operator playbook + rollback + WebView2 manual test),
+  `docs/migration-guide.md` (0.3.x → 0.4.0), `docs/bench-ws-2026-Q2.md`
+  (placeholder for the deferred gorilla-vs-coder WebSocket bench).
+- **SQLite schema** — 5 new tables under `state.db`: `office_agents`,
+  `office_sessions`, `office_messages`, `office_cron`, `office_audit`. The
+  `office_messages.content_hash` column is backfilled via a one-shot
+  migration and indexed (NOT unique — legitimate duplicates are valid).
+
+### Changed
+- **`/api/gateway/ws` → `/office/ws`** (breaking for direct WS consumers;
+  see §7 of `docs/migration-guide.md`).
+- **Rate-limit + lockout wiring** — `sessionStore.mu` now guards both the
+  live session map and the lockout map under a single mutex. No public API
+  change, but load-bearing for the 3-fail lockout invariant.
+- **Doctor subcommand** — flag-based argument parsing via `flag.NewFlagSet`;
+  existing behavior preserved as the default code path.
+
+### Deprecated (removal in 0.5.0)
+- `PAN_OFFICE_ENGINE` environment variable — use `office.engine` instead.
+- `/v1/office/setup|start|stop|logs` legacy lifecycle endpoints — now
+  no-ops; retained for one minor-version window.
+
+### Known limitations
+- **Windows code-signing deferred.** Installers ship unsigned; users see a
+  SmartScreen warning. Acquisition is a 0.5.0 item. See `docs/runbook.md` §11.
+- **tauri-driver matrix excludes macOS** — WKWebView has no upstream
+  WebDriver. Pending `danielraffel/tauri-webdriver` maturity.
+- **WebSocket library benchmark deferred to 0.5.0** — see
+  `docs/bench-ws-2026-Q2.md` for the decision record.
+
 ## [0.3.1] - 2026-04-14
 
 ### Fixed
@@ -107,6 +186,7 @@ Phase 11 — self-healing skill system, full feature-parity with hermes-agent's 
 - Tauri v2 + React 19 desktop app with 14 screens
 - GitLab CI + GitHub Actions build pipeline
 
+[0.4.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/Euraika-Labs/pan-agent/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.1.1...v0.2.0

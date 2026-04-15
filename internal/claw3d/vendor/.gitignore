@@ -1,0 +1,16 @@
+# Everything in this directory EXCEPT the contract files is transient build
+# scratch. The build-bundle script clones upstream, applies patches, runs
+# next build && next export, then copies the output to internal/claw3d/bundle/.
+# None of that should live in git.
+upstream/
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# But DO commit the vendor contract itself.
+!README.md
+!upstream.sha
+!upstream.url
+!patches/
+!patches/**

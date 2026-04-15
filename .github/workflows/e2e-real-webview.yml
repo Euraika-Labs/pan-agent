@@ -1,0 +1,125 @@
+name: E2E Real Webview
+
+# M5-C4: runs desktop/tests/real-webview/ (WebdriverIO + tauri-driver)
+# against actual Tauri builds on Windows + Linux. macOS is DROPPED —
+# upstream tauri-driver has no WKWebView support as of Feb 2026.
+#
+# This is SEPARATE from the Playwright smoke suite (Commit D): that
+# one uses mocks and runs on every PR; this one builds a real Tauri
+# binary and runs weekly / on demand. Budget: ~8-10 min per matrix leg.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1' # Monday 04:00 UTC — 1h before chaos.yml
+
+jobs:
+  e2e-real-webview:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      # ── Linux-specific system deps ──────────────────────────────
+      # webkit2gtk-driver provides the WebDriver endpoint tauri-driver
+      # proxies to for WebKitGTK. xvfb gives us a headless display for
+      # the Tauri window to render into.
+      - name: Install Linux system deps
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            webkit2gtk-driver \
+            xvfb
+
+      # ── Windows-specific: msedgedriver-tool ─────────────────────
+      # Do NOT pin a specific msedgedriver version. The tool queries
+      # the installed WebView2 runtime and downloads the matching
+      # driver at runtime. Any hardcoded version drifts within weeks
+      # as GitHub's windows-latest image auto-updates Edge.
+      - name: Install msedgedriver (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          & "$env:USERPROFILE\.cargo\bin\msedgedriver-tool.exe"
+          echo "$PWD" >> $env:GITHUB_PATH
+
+      # ── tauri-driver itself ─────────────────────────────────────
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+
+      # ── npm install for desktop/ AND desktop/tests/real-webview/ ─
+      # The real-webview harness has its OWN package.json with a
+      # pinned wdio v7 — it does NOT share node_modules with the
+      # main desktop/ tree (where wdio isn't installed at all).
+      - name: Install desktop deps
+        run: npm ci
+        working-directory: desktop
+
+      - name: Install real-webview test harness
+        run: npm install
+        working-directory: desktop/tests/real-webview
+
+      # ── Start pan-agent gateway in background so tauri-driver tests
+      # have a live backend to hit. Uses the already-built Go binary. ─
+      - name: Build pan-agent gateway
+        run: go build -o dist/pan-agent${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/pan-agent
+
+      - name: Start pan-agent gateway (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          ./dist/pan-agent serve --port 8642 --host 127.0.0.1 &
+          sleep 3
+          curl -sf http://127.0.0.1:8642/v1/office/engine || (echo "gateway not ready"; exit 1)
+
+      - name: Start pan-agent gateway (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          Start-Process -FilePath "dist\pan-agent.exe" -ArgumentList "serve","--port","8642","--host","127.0.0.1" -NoNewWindow
+          Start-Sleep -Seconds 3
+          Invoke-WebRequest -Uri "http://127.0.0.1:8642/v1/office/engine" -UseBasicParsing | Out-Null
+
+      # ── Run wdio ────────────────────────────────────────────────
+      # Linux runs under xvfb-run so the WebKitGTK window has a
+      # display to render into. Windows runs natively.
+      - name: Run wdio (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: xvfb-run --auto-servernum npx wdio run wdio.conf.mjs
+        working-directory: desktop/tests/real-webview
+
+      - name: Run wdio (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: npx wdio run wdio.conf.mjs
+        working-directory: desktop/tests/real-webview
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-real-webview-${{ matrix.platform }}
+          path: |
+            desktop/tests/real-webview/logs/
+            dist/

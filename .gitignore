@@ -1,8 +1,20 @@
 # Go
 /pan-agent
 /pan-agent.exe
+/pan-agent-*.exe
+/sha-stamp.exe
+*.exe~
 *.test
 /coverage/
+
+# Claw3D vendored upstream clone — cloned on demand by scripts/build-bundle.sh
+# from the pinned SHA in internal/claw3d/vendor/upstream.sha. The compiled
+# bundle lives at internal/claw3d/bundle/ and IS committed.
+internal/claw3d/vendor/upstream/
+
+# Tooling caches — Claude Code session data, octo orchestration results
+.claude/
+.claude-octopus/
 
 # Tauri / Rust
 desktop/src-tauri/target/

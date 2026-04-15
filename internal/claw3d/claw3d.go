@@ -4,7 +4,10 @@
 package claw3d
 
 import (
+	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/paths"
 )
@@ -104,6 +108,55 @@ func isAlive(pid int) bool {
 	return probeAlive(p)
 }
 
+// portOpen returns true when something is accepting TCP connections on
+// 127.0.0.1:port. Used as a second predicate beside isAlive so a stale
+// cmd.exe wrapper whose child Node has silently died doesn't keep the UI
+// stuck on "running:true". 200ms is enough to pick up a healthy local
+// listener without making Status() noticeably slower.
+//
+// Caveat: a TCP listener still in the kernel's LISTEN state answers SYNs
+// even when the owning app is wedged (Next.js dev-mode has done this
+// during heavy compiles). Use httpAlive for the dev server to catch that.
+func portOpen(port int) bool {
+	if port <= 0 {
+		return false
+	}
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// httpAlive returns true when http://127.0.0.1:port/ responds — any
+// HTTP status code counts as alive, because the dev server is free to
+// answer with 404/500 on /. What we're ruling out is "port LISTENs but
+// the app is hung" — a stuck Next.js process accepts the TCP SYN but
+// never replies. 1.5s is generous enough for a slow cold-start
+// compile on modest hardware and short enough that a Status() poll
+// doesn't feel laggy.
+func httpAlive(port int) bool {
+	if port <= 0 {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	url := "http://127.0.0.1:" + strconv.Itoa(port) + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return true
+}
+
 // ---------------------------------------------------------------------------
 // Port helpers
 // ---------------------------------------------------------------------------
@@ -152,33 +205,53 @@ func SetWsURL(url string) error {
 // Process state
 // ---------------------------------------------------------------------------
 
+// isDevServerRunning is true when the PID we recorded for the dev server
+// is still alive AND http://127.0.0.1:<port>/ answers within 1.5s.
+// HTTP-level probing (not just TCP) is load-bearing here: a previous
+// incident saw Next.js dev-server stuck mid-compile — the cmd.exe
+// wrapper stayed alive, the TCP port still LISTENed, but every HTTP
+// request timed out. isAlive + portOpen both said "running"; only a
+// real HTTP round-trip caught the hang.
 func isDevServerRunning() bool {
 	mu.Lock()
 	cmd := devCmd
 	mu.Unlock()
-	if cmd != nil && cmd.Process != nil && isAlive(cmd.Process.Pid) {
+	port := GetPort()
+	if cmd != nil && cmd.Process != nil && isAlive(cmd.Process.Pid) && httpAlive(port) {
 		return true
 	}
 	pid, ok := readPID(devPIDFile)
-	if ok && isAlive(pid) {
+	if ok && isAlive(pid) && httpAlive(port) {
 		return true
 	}
-	removePID(devPIDFile)
+	if ok && !isAlive(pid) {
+		removePID(devPIDFile)
+	}
 	return false
 }
 
+// isAdapterRunning mirrors isDevServerRunning but uses a TCP dial, not
+// HTTP: the adapter is a raw WebSocket endpoint and a plain HTTP GET /
+// against it is an ambiguous signal (some versions return 426 Upgrade
+// Required, others drop the connection). Port bound + PID alive is a
+// good-enough health check for the adapter — if it's deadlocked we
+// don't currently have a cheap way to detect that without sending a
+// real WS handshake. Revisit if we see adapter-hang incidents.
 func isAdapterRunning() bool {
 	mu.Lock()
 	cmd := adapterCmd
 	mu.Unlock()
-	if cmd != nil && cmd.Process != nil && isAlive(cmd.Process.Pid) {
+	const adapterPort = 48789
+	if cmd != nil && cmd.Process != nil && isAlive(cmd.Process.Pid) && portOpen(adapterPort) {
 		return true
 	}
 	pid, ok := readPID(adapterPIDFile)
-	if ok && isAlive(pid) {
+	if ok && isAlive(pid) && portOpen(adapterPort) {
 		return true
 	}
-	removePID(adapterPIDFile)
+	if ok && !isAlive(pid) {
+		removePID(adapterPIDFile)
+	}
 	return false
 }
 
@@ -261,8 +334,19 @@ func writeEnv(repoDir string) {
 		fmt.Sprintf("NEXT_PUBLIC_GATEWAY_URL=%s", wsURL),
 		fmt.Sprintf("CLAW3D_GATEWAY_URL=%s", wsURL),
 		"CLAW3D_GATEWAY_TOKEN=",
+		// pan-office defaults CLAW3D_GATEWAY_ADAPTER_TYPE to "openclaw",
+		// which requires a token we don't issue. We actually run the
+		// hermes adapter (server/hermes-gateway-adapter.js), which is
+		// token-less on localhost. Without this line the onboarding
+		// wizard reports "unauthorized: gateway token missing".
+		"CLAW3D_GATEWAY_ADAPTER_TYPE=hermes",
 		// pan-office's adapter reads HERMES_ADAPTER_PORT (not ADAPTER_PORT).
 		"HERMES_ADAPTER_PORT=48789",
+		// Tells pan-office's next.config.ts to relax frame-ancestors and
+		// drop X-Frame-Options so the Tauri desktop shell (localhost:5173)
+		// can iframe it. Without this the Office screen shows a blocked
+		// chrome-error page.
+		"PAN_AGENT_EMBED=1",
 		"PAN_MODEL=pan",
 		"PAN_AGENT_NAME=Pan",
 		"",
@@ -296,6 +380,19 @@ func StartDevServer() error {
 		fmt.Sprintf("PORT=%d", port),
 		"NEXT_TELEMETRY_DISABLED=1",
 		"TERM=dumb",
+		// Relaxes pan-office's frame-ancestors + drops X-Frame-Options
+		// so the Tauri desktop shell (localhost:5173) can iframe it.
+		// Also written by writeEnv, but set here too for profiles that
+		// were set up before the flag existed.
+		"PAN_AGENT_EMBED=1",
+		// Pin adapter type to hermes; pan-office's default is "openclaw"
+		// which expects a token and makes the wizard fail with
+		// "unauthorized". Repeated here (and in writeEnv) so existing
+		// installs pick it up without re-running Setup.
+		"CLAW3D_GATEWAY_ADAPTER_TYPE=hermes",
+		fmt.Sprintf("CLAW3D_GATEWAY_URL=%s", GetWsURL()),
+		"CLAW3D_GATEWAY_TOKEN=",
+		fmt.Sprintf("NEXT_PUBLIC_GATEWAY_URL=%s", GetWsURL()),
 	)
 
 	cmd := exec.Command(npm, "run", "dev")

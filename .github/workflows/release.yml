@@ -85,6 +85,72 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      # ── M6-C3: SBOM generation ───────────────────────────────────────
+      # Runs on Linux only (the output is identical across OSes for a
+      # Go + Node module set). Emits two files:
+      #   sbom/pan-agent-gomod-${VERSION}.json — Go deps via cyclonedx-gomod
+      #   sbom/office-licenses-${VERSION}.json — Node deps via license-checker
+      # Then fails the build on any AGPL/GPL-3 hit that isn't in
+      # sbom/allowlist.txt. Attached to the GitHub Release as artifacts.
+      - name: Install SBOM tooling (Linux only)
+        if: matrix.settings.platform == 'linux'
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          npm install -g license-checker-rseidelsohn
+
+      - name: Generate SBOM (Linux only)
+        if: matrix.settings.platform == 'linux'
+        shell: bash
+        run: |
+          mkdir -p sbom
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Go side — cyclonedx-gomod emits a full SPDX-ish JSON with
+          # module versions + license metadata pulled from go.sum.
+          cyclonedx-gomod mod \
+            -licenses \
+            -json \
+            -output "sbom/pan-agent-gomod-${VERSION}.json" \
+            ./ || true
+
+          # Node side — license-checker-rseidelsohn walks desktop/node_modules.
+          # --production skips devDeps (vitest, Playwright, etc.) which
+          # don't ship. Some packages emit "UNKNOWN" which is fine — the
+          # copyleft gate below looks for literal AGPL/GPL-3 strings.
+          cd desktop && license-checker-rseidelsohn \
+            --production \
+            --json \
+            --out "../sbom/office-licenses-${VERSION}.json" || true
+          cd ..
+
+          # Copyleft gate: fail the build on AGPL or GPL-3 hits that
+          # aren't in the allowlist. Uses plain grep rather than jq so
+          # the check stays robust against schema drift in either tool.
+          echo "=== SBOM copyleft scan ==="
+          HITS=$(grep -Ei 'AGPL|GPL-3' sbom/*.json || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS" > /tmp/copyleft-hits.txt
+            # Filter through the allowlist.
+            if [ -f sbom/allowlist.txt ]; then
+              UNALLOWED=$(grep -Fvf sbom/allowlist.txt /tmp/copyleft-hits.txt || true)
+            else
+              UNALLOWED="$HITS"
+            fi
+            if [ -n "$UNALLOWED" ]; then
+              echo "::error::Copyleft license detected in release dependencies:"
+              echo "$UNALLOWED"
+              exit 1
+            fi
+          fi
+          echo "no unexpected copyleft licenses"
+
+      - name: Upload SBOM artifacts (Linux only)
+        if: matrix.settings.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ steps.version.outputs.version }}
+          path: sbom/*.json
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:

@@ -4058,6 +4058,9 @@ body {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  /* Positioning context for the absolutely-positioned .office-debug-panel
+     (slide-in from the right). M4 W2. */
+  position: relative;
 }
 
 .office-toolbar {
@@ -4786,4 +4789,259 @@ body {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
 }
+
+/* ============================================================================
+   M4 W2 — Office UI (engine toggle, migration banner, persistence alert)
+   ============================================================================
+   All rules below support the 0.4.0 Claw3D embedded-engine UI. They use only
+   existing theme variables (see :root at top of file). No new variables are
+   introduced. The layout-content-wrapper class is a new generic slot that
+   Layout.tsx uses to stack the migration banner above the main content area.
+   ========================================================================== */
+
+/* ─── Layout wrapper: stacks banner + main content ───────────────────────── */
+.layout-content-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* NOTE: `.office-ready`, `.office-toolbar`, `.office-toolbar-title`,
+   `.office-toolbar-right`, and `.office-toolbar-btn` are defined in the
+   earlier OFFICE section above. M4 W2 reuses them as-is. The only new
+   base-rule property needed is `position: relative` on `.office-ready`,
+   which is added inline on the existing declaration rather than
+   duplicated here — see code-review finding 2026-04-15. */
+
+/* ─── OfficeDebugPanel: slide-in panel from the right ─────────────────── */
+.office-debug-panel {
+  position: absolute;
+  top: 40px; /* below office-toolbar (~40px) */
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  z-index: 10;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
+}
+
+.office-debug-panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.office-debug-panel-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.office-debug-panel-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.office-debug-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.office-debug-panel-value {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.office-debug-panel-warn {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+}
+
+.office-debug-panel-logs {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  background: var(--code-bg);
+  color: var(--text-secondary);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  max-height: 120px;
+  overflow: auto;
+}
+
+.office-debug-panel-section select {
+  width: 100%;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.office-debug-panel-section select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── MigrationBanner: full-width above main content ──────────────────── */
+.migration-banner {
+  padding: 10px 16px;
+  background: var(--accent-subtle);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.migration-banner-icon {
+  color: var(--accent-text);
+  flex-shrink: 0;
+  display: flex; /* vertical centre of the icon */
+}
+
+.migration-banner-body {
+  flex: 1;
+  min-width: 0; /* allow flex children to shrink below content width */
+}
+
+.migration-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.migration-banner-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.migration-banner-summary {
+  display: block;
+  font-size: 11px;
+  color: var(--success);
+  margin-top: 4px;
+}
+
+.migration-banner-error {
+  font-size: 11px;
+  color: var(--error);
+  margin-top: 4px;
+  /* Gate-2 refinement #5 — ack failures are surfaced here rather than
+     silently swallowed. User sees the retry affordance. */
+}
+
+.migration-banner-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ─── PersistenceAlert: sticky page-level alert for config/memory split ── */
+/* Mounted in Layout.tsx above the content wrapper. Triggered by
+   emitPersistenceAlert (see api.ts) when an engine swap returns
+   persisted:false. Stays visible across engine re-changes until explicit
+   dismiss — per Gate-1 decision #6, this is a restart-flip risk, NOT a
+   cosmetic warning. */
+.persistence-alert {
+  padding: 10px 16px;
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning);
+  color: var(--warning);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.persistence-alert-icon {
+  flex-shrink: 0;
+  display: flex;
+}
+
+.persistence-alert-body {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.persistence-alert-body strong {
+  color: var(--warning);
+}
+
+.persistence-alert-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.persistence-alert-close:hover {
+  color: var(--text-primary);
+}
+
+/* ─── FallbackBanner (M5-C3): WebView2 WebGL2 fallback ──────────────── */
+/* Mounted in Layout above the screen stack. Self-gates on
+   office.browser_fallback_until. Same visual grammar as
+   persistence-alert but uses accent color to distinguish "informational
+   active-state" from "warning about drift". */
+.fallback-banner {
+  padding: 10px 16px;
+  background: var(--accent-subtle);
+  border-bottom: 1px solid var(--accent);
+  color: var(--text-primary);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.fallback-banner-icon {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--accent-text);
+}
+
+.fallback-banner-body {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fallback-banner-body strong {
+  color: var(--accent-text);
+}
+
+.fallback-banner-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
 

@@ -24,3 +24,18 @@ go.sum                      @anubissbe
 # Docs
 /docs/                      @anubissbe
 /CLAUDE.md                  @anubissbe
+
+# M5/M6 — vendor contract + release infrastructure (0.4.0)
+# Vendor-sync auto-opens PRs against /internal/claw3d/vendor/ on upstream
+# drift; CODEOWNERS here gates the human review before merge. The build
+# scripts and embed stamp live next to the vendor tree so patches can't
+# land without the owner seeing the dry-run CI result.
+/internal/claw3d/vendor/                @anubissbe
+/internal/claw3d/chaos_test.go          @anubissbe
+/internal/claw3d/chaos_helper/          @anubissbe
+/scripts/build-bundle.sh                @anubissbe
+/scripts/build-bundle.ps1               @anubissbe
+/.github/workflows/vendor-sync.yml      @anubissbe
+/.github/workflows/chaos.yml            @anubissbe
+/.github/workflows/e2e-real-webview.yml @anubissbe
+/.github/workflows/release.yml          @anubissbe

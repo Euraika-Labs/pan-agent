@@ -1,0 +1,31 @@
+Subject: [PATCH 0004/0004] convert root redirect to client component for static export
+
+Next.js static export (output:'export') cannot emit a server-component
+redirect() against a path not resolved at build time — there is no
+runtime Node to execute on request. src/app/page.tsx upstream simply
+redirects "/" to "/office"; converting to a client component preserves
+the UX while satisfying static export.
+
+Other redirect-only pages ([...invalid], agents/[agentId]/settings) are
+removed by patches/apply-deletions.sh because they exist purely to
+redirect and carry no content worth preserving.
+
+---
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -1,5 +1,12 @@
+-import { redirect } from "next/navigation";
++"use client";
++
++import { useEffect } from "react";
++import { useRouter } from "next/navigation";
+
+ export default function Home() {
+-  redirect("/office");
++  // Converted from server-side redirect for Next.js static export
++  // compatibility (output:'export' cannot emit server-time redirects).
++  const router = useRouter();
++  useEffect(() => { router.replace("/office/"); }, [router]);
++  return null;
+ }

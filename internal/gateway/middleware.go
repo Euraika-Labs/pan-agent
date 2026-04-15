@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 )
@@ -82,4 +84,17 @@ func (lw *loggingResponseWriter) Flush() {
 	if f, ok := lw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack delegates to the underlying ResponseWriter when it implements
+// http.Hijacker. This is required so that WebSocket upgrade handlers (which
+// use gorilla/websocket or the stdlib upgrader) can take over the raw TCP
+// connection. Without this delegation, upgrader.Upgrade returns 500 because
+// the loggingResponseWriter wrapper hides the Hijacker interface.
+func (lw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := lw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("loggingResponseWriter: underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return h.Hijack()
 }

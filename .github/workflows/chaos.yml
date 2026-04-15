@@ -1,0 +1,47 @@
+name: Chaos Tests
+
+# M5-C2: runs the internal/claw3d chaos_test.go suite (build-tag gated)
+# on Windows + Linux. Default `go test ./...` never runs these — they
+# spawn real child processes, SIGKILL them, and take ~30s each, so they
+# live on a separate schedule. Manual dispatch for debugging; weekly
+# cron for regression detection.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 1'  # Monday 05:00 UTC, 1h after vendor-sync cron
+
+jobs:
+  chaos:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      # Build pan-agent up front so the two chaos tests share one build
+      # instead of doing `go build` twice per test (speeds CI ~30s).
+      - name: Build pan-agent binary
+        run: go build -o dist/pan-agent${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/pan-agent
+
+      # Chaos test suite — -tags chaos unlocks internal/claw3d/chaos_test.go.
+      # -timeout is per-test; chaos scenarios budget ~20s each.
+      - name: Run chaos tests
+        run: go test -tags chaos -v -timeout 90s ./internal/claw3d/
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-logs-${{ matrix.platform }}
+          path: |
+            dist/
+            internal/claw3d/*.log

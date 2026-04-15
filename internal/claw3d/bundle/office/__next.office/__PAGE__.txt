@@ -1,0 +1,8 @@
+1:"$Sreact.fragment"
+2:I[54109,["/_next/static/chunks/c00ba5697bc797b2.js","/_next/static/chunks/b8ba651f4c93a14f.js"],"AgentStoreProvider"]
+3:"$Sreact.suspense"
+4:I[82521,["/_next/static/chunks/c00ba5697bc797b2.js","/_next/static/chunks/b8ba651f4c93a14f.js"],"RunningAvatarLoader"]
+5:I[30833,["/_next/static/chunks/c00ba5697bc797b2.js","/_next/static/chunks/b8ba651f4c93a14f.js"],"OfficeScreen"]
+6:I[97367,["/_next/static/chunks/ff1a16fafef87110.js","/_next/static/chunks/0bd6498bda341889.js"],"OutletBoundary"]
+0:{"buildId":"vMZ7ZQ_8FuoX3RSDwUpEP","rsc":["$","$1","c",{"children":[["$","$L2",null,{"children":["$","$3",null,{"fallback":["$","div",null,{"className":"flex h-full w-full items-center justify-center bg-background","aria-label":"Loading office","role":"status","children":["$","div",null,{"className":"flex flex-col items-center gap-3","children":["$","$L4",null,{"size":28,"trackWidth":76,"label":"Loading...","labelClassName":"text-muted-foreground"}]}]}],"children":["$","$L5",null,{"showOpenClawConsole":true}]}]}],[["$","script","script-0",{"src":"/_next/static/chunks/c00ba5697bc797b2.js","async":true}],["$","script","script-1",{"src":"/_next/static/chunks/b8ba651f4c93a14f.js","async":true}]],["$","$L6",null,{"children":["$","$3",null,{"name":"Next.MetadataOutlet","children":"$@7"}]}]]}],"loading":null,"isPartial":false}
+7:null

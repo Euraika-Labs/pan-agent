@@ -1,0 +1,76 @@
+name: vendor-sync
+
+# Weekly check for new commits on iamlukethedev/Claw3D:main. If the upstream
+# SHA has moved, rebase our patch set against it (best-effort), rebuild the
+# bundle, and open a DRAFT PR for human review. Never merges automatically.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 06:00 UTC — avoids weekend deploy freezes
+  workflow_dispatch:      # allow manual trigger from the Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve upstream latest SHA
+        id: upstream
+        run: |
+          CURRENT=$(cat internal/claw3d/vendor/upstream.sha | tr -d '\r\n')
+          LATEST=$(curl -s https://api.github.com/repos/iamlukethedev/Claw3D/commits/main | jq -r .sha)
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "latest=$LATEST"   >> $GITHUB_OUTPUT
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "no_drift=true" >> $GITHUB_OUTPUT
+          fi
+          echo "Current: $CURRENT"
+          echo "Latest:  $LATEST"
+
+      - name: Skip — no drift
+        if: steps.upstream.outputs.no_drift == 'true'
+        run: |
+          echo "Upstream SHA unchanged; nothing to do."
+          exit 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Bump pin + attempt rebuild
+        run: |
+          echo "${{ steps.upstream.outputs.latest }}" > internal/claw3d/vendor/upstream.sha
+          bash scripts/build-bundle.sh --dry-run  # patches apply?
+          bash scripts/build-bundle.sh            # full rebuild
+
+      - name: Verify Go build still green
+        run: go build ./... && go test ./...
+
+      - name: Open draft PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: vendor-sync/claw3d
+          title: 'chore(claw3d): sync upstream to ${{ steps.upstream.outputs.latest }}'
+          draft: true
+          body: |
+            Automated vendor-sync: upstream `iamlukethedev/Claw3D:main` advanced.
+
+            **Diff:** https://github.com/iamlukethedev/Claw3D/compare/${{ steps.upstream.outputs.current }}...${{ steps.upstream.outputs.latest }}
+
+            **Validation performed:**
+            - `scripts/build-bundle.sh --dry-run` (patches apply cleanly)
+            - `scripts/build-bundle.sh` (full bundle build)
+            - `go build ./...` + `go test ./...`
+
+            Review the bundle size delta + any visible diff in `internal/claw3d/bundle/` before marking ready.

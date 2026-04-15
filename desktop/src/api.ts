@@ -134,3 +134,186 @@ export function streamSSE(
   // Return cleanup — callers call this to abort mid-stream.
   return () => controller.abort();
 }
+
+// ---------------------------------------------------------------------------
+// M4 W2: office engine + migration + bundle info + persistence alert bus
+// ---------------------------------------------------------------------------
+//
+// Typed helpers for the 0.4.0 Claw3D embedded-engine runtime toggle and the
+// one-shot legacy-JSON migration importer. The Go side landed these in
+// internal/gateway/office_engine.go and office_migration.go earlier in this
+// session; the frontend now consumes them here. All responses shapes mirror
+// the Go types verbatim so a single protocol change propagates through one
+// file only.
+
+// ─── Engine contracts ──────────────────────────────────────────────────────
+
+/**
+ * Shape returned by GET /v1/office/engine. `switchable` lets the UI disable
+ * the dropdown on builds that lock the engine (none yet, but future-proof).
+ */
+export interface EngineGetResponse {
+  engine: "go" | "node";
+  switchable: boolean;
+}
+
+/** POST body for /v1/office/engine. */
+export interface EnginePostRequest {
+  engine: "go" | "node";
+}
+
+/**
+ * POST response — `persisted:false` means the in-memory swap succeeded but
+ * the yaml write failed, producing a restart-time divergence. The UI must
+ * surface this as a sticky alert (PersistenceAlert component), NOT as a
+ * cosmetic badge — see Gate-1 decision #6.
+ */
+export interface EnginePostResponse {
+  engine: "go" | "node";
+  changed: boolean;
+  from?: "go" | "node"; // omitted when changed=false (no-op swap)
+  persisted: boolean;
+}
+
+export function getEngine(init?: RequestInit): Promise<EngineGetResponse> {
+  return fetchJSON<EngineGetResponse>("/v1/office/engine", init);
+}
+
+export function postEngine(body: EnginePostRequest): Promise<EnginePostResponse> {
+  return fetchJSON<EnginePostResponse>("/v1/office/engine", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// ─── Migration contracts ───────────────────────────────────────────────────
+
+/** GET /v1/office/migration/status — the banner-gating signal. */
+export interface MigrationStatusResponse {
+  needed: boolean;
+  legacyPath: string; // "" when needed=false
+  acked: boolean;
+}
+
+/** POST body for /v1/office/migration/run — all fields optional. */
+export interface MigrationRunRequest {
+  dryRun?: boolean;
+  force?: boolean;
+  source?: string;
+  backupDir?: string;
+}
+
+/**
+ * Report returned by /v1/office/migration/run. `status:"missing"` is NOT an
+ * error — it means there was nothing to migrate; the banner should hide.
+ */
+export interface MigrationReport {
+  imported: {
+    agents: number;
+    sessions: number;
+    messages: number;
+    cron: number;
+  };
+  status: "ok" | "skip" | "missing";
+  digest: string;
+  backupPath?: string;
+}
+
+export function getMigrationStatus(init?: RequestInit): Promise<MigrationStatusResponse> {
+  return fetchJSON<MigrationStatusResponse>("/v1/office/migration/status", init);
+}
+
+export function postMigrationRun(body: MigrationRunRequest = {}): Promise<MigrationReport> {
+  return fetchJSON<MigrationReport>("/v1/office/migration/run", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// ─── Config patch (dismiss migration banner) ──────────────────────────────
+
+/** Subset of /v1/config PUT body — only the M4-W2 fields we write. */
+export interface ConfigPatchRequest {
+  office?: { migration_ack?: boolean };
+}
+
+export function patchConfig(body: ConfigPatchRequest): Promise<void> {
+  return fetchJSON<void>("/v1/config", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+// ─── Bundle info (parsed from /office/config.js text) ─────────────────────
+
+/**
+ * Pieces of the runtime bootstrap that the Go adapter writes into
+ * `/office/config.js` on request. Used by OfficeDebugPanel to display the
+ * bundle SHA. On any parse failure the value is `"unknown"` rather than
+ * throwing — a broken debug display is better than a broken Office tab.
+ */
+export interface BundleInfo {
+  sha: string;
+  wsUrl: string;
+  apiBase: string;
+}
+
+/**
+ * Extract a `window.<key> = "<value>"` assignment from the Go-generated
+ * config.js. We capture the full JS string literal including its quotes,
+ * then `JSON.parse` it. That handles Go's `%q` formatter outputs —
+ * embedded escapes like `\"`, `\\`, `\u00e9` — which a naïve `"([^"]*)"`
+ * pattern silently corrupts (Gate-2 refinement #4). Failures return
+ * `"unknown"` so the UI can render something meaningful.
+ */
+function pickBundleValue(source: string, key: string): string {
+  const re = new RegExp(`window\\.${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")`);
+  const m = source.match(re);
+  if (!m) return "unknown";
+  try {
+    return JSON.parse(m[1]) as string;
+  } catch {
+    return "unknown";
+  }
+}
+
+export async function getBundleInfo(): Promise<BundleInfo> {
+  const res = await fetch(`${BASE}/office/config.js`, { cache: "no-store" });
+  if (!res.ok) {
+    return { sha: "unknown", wsUrl: "unknown", apiBase: "unknown" };
+  }
+  const text = await res.text();
+  return {
+    sha: pickBundleValue(text, "__CLAW3D_BUNDLE_SHA__"),
+    wsUrl: pickBundleValue(text, "__CLAW3D_WS_URL__"),
+    apiBase: pickBundleValue(text, "__CLAW3D_API_BASE__"),
+  };
+}
+
+// ─── Persistence-alert event bus ───────────────────────────────────────────
+
+/**
+ * DOM event name used to bridge OfficeDebugPanel (emitter) to
+ * PersistenceAlert (consumer) without a shared state library. Using the
+ * browser's event system keeps both components independent — either can
+ * be mounted/unmounted without the other knowing.
+ */
+export const PERSISTENCE_ALERT_EVENT = "pan-agent:persistence-alert";
+
+/** Payload attached to the CustomEvent.detail. */
+export interface PersistenceAlertDetail {
+  engine: "go" | "node";
+  from?: "go" | "node";
+}
+
+/**
+ * Emit a sticky page-level warning that an engine swap succeeded in-memory
+ * but failed to persist to config.yaml. Consumer mounts in Layout.tsx and
+ * stays visible until the user explicitly dismisses — per Gate-1 decision
+ * #6, this is a restart-flip risk, not cosmetic.
+ */
+export function emitPersistenceAlert(detail: PersistenceAlertDetail): void {
+  window.dispatchEvent(
+    new CustomEvent<PersistenceAlertDetail>(PERSISTENCE_ALERT_EVENT, { detail }),
+  );
+}

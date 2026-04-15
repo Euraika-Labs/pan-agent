@@ -4,12 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
-      Content-Security-Policy: allow connections back to the Go backend
-      (localhost:8642) and the Tauri IPC bridge. Adjust as needed.
+      Content-Security-Policy — MUST stay byte-identical to the "csp"
+      field in desktop/src-tauri/tauri.conf.json. The Tauri bundler
+      uses the latter in production and this <meta> takes over in Vite
+      dev mode; any drift silently breaks one or the other.
+
+      Why 'unsafe-inline' + 'unsafe-eval' on script-src: Vite injects an
+      inline React-refresh bootstrap <script> into the served HTML and
+      uses eval() for module transforms. Without these, the bootstrap
+      never runs, so React never mounts and CSS imports (which Vite
+      converts to JS modules that create <style> tags) never land —
+      the window stays unstyled. Seen live as "bad css / css not loaded".
+
+      Why tauri: ipc: in default-src: required by Tauri v2's IPC plugin
+      transport layer. Without them, window.__TAURI__ calls CSP-fail in
+      bundled builds. See tauri.app/security docs.
+
+      Why frame-src http://localhost:8642 (0.4.0, M4 W2 Commit C): the
+      Office screen iframes the embedded Claw3D bundle served by the
+      Go gateway at :8642. Old :3000 entries removed — the legacy
+      Node sidecar (office.engine=node) is reached via the same
+      gateway proxy after M4, not directly.
+
+      Why ws://localhost:8642 in connect-src: the Claw3D adapter
+      WebSocket now rides the gateway port instead of the old :48789
+      stand-alone port — one port, one CORS policy, one CSP entry.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' tauri: ipc: http://localhost:8642; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost"
+      content="default-src 'self' tauri: ipc: http://ipc.localhost http://localhost:8642 http://localhost:5173; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost; frame-src 'self' http://localhost:8642; connect-src 'self' http://ipc.localhost http://localhost:8642 http://localhost:5173 ws://localhost:5173 ws://localhost:8642"
     />
     <link rel="icon" type="image/png" href="/src/assets/icon.png" />
     <title>Pan Desktop</title>

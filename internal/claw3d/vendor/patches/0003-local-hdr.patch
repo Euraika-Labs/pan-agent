@@ -1,0 +1,29 @@
+Subject: [PATCH 0003/0004] vendor HDR environment locally — remove drei CDN dependency
+
+drei's <Environment preset="city" /> fetches the HDR texture from
+market.pmnd.rs/hdri/city_1k.hdr at runtime. Behind an air-gapped install
+or in a Tauri shell with strict CSP, that fails and the scene renders
+flat. Replace both call sites with a vendored file at
+/office-assets/hdr/city_1k.hdr (placed by apply-deletions.sh).
+
+---
+diff --git a/src/features/agents/components/AgentAvatarPreview3D.tsx b/src/features/agents/components/AgentAvatarPreview3D.tsx
+--- a/src/features/agents/components/AgentAvatarPreview3D.tsx
++++ b/src/features/agents/components/AgentAvatarPreview3D.tsx
+@@ -329,5 +329,5 @@
+           }}
+         />
+-        <Environment preset="city" />
++        <Environment files="/office-assets/hdr/city_1k.hdr" />
+         <OrbitControls enablePan={false} enableZoom={false} maxPolarAngle={1.8} minPolarAngle={1.1} />
+       </Canvas>
+diff --git a/src/features/retro-office/RetroOffice3D.tsx b/src/features/retro-office/RetroOffice3D.tsx
+--- a/src/features/retro-office/RetroOffice3D.tsx
++++ b/src/features/retro-office/RetroOffice3D.tsx
+@@ -5344,5 +5344,5 @@
+             {/* Environment lighting — async, wrapped in its own Suspense so floor stays visible. */}
+             <Suspense fallback={null}>
+-              <Environment preset="city" />
++              <Environment files="/office-assets/hdr/city_1k.hdr" />
+             </Suspense>
+

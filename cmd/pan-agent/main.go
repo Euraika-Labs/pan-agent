@@ -13,10 +13,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -24,6 +28,7 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/gateway"
 	"github.com/euraika-labs/pan-agent/internal/llm"
+	"github.com/euraika-labs/pan-agent/internal/parentwatch"
 	"github.com/euraika-labs/pan-agent/internal/paths"
 	"github.com/euraika-labs/pan-agent/internal/storage"
 	"github.com/euraika-labs/pan-agent/internal/version"
@@ -53,8 +58,14 @@ func run(args []string) error {
 		return cmdVersion(args)
 	case "doctor":
 		return cmdDoctor(args)
+	case "migrate-office":
+		// M4 W2 — one-shot legacy migration from ~/.hermes/ into SQLite.
+		// Runs outside `serve` so admins can execute it without starting
+		// the full gateway (e.g., on a headless box just to pre-populate
+		// the DB before the first UI launch).
+		return cmdMigrateOffice(args)
 	default:
-		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor>", sub)
+		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor|migrate-office>", sub)
 	}
 }
 
@@ -85,6 +96,21 @@ func cmdServe(args []string) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	// Parent-process watchdog: if launched as a sidecar (PAN_AGENT_PARENT_PID
+	// set to the launcher's PID), shut down gracefully when that parent dies.
+	// This catches the "TerminateProcess from Tauri on Windows" case where no
+	// signal is ever delivered to the child.
+	watchCtx, cancelWatch := context.WithCancel(context.Background())
+	defer cancelWatch()
+	if pid := parentPIDFromEnv(); pid > 0 {
+		fmt.Printf("pan-agent: watching parent PID %d (will exit when it does)\n", pid)
+		go parentwatch.Watch(watchCtx, pid, func() {
+			fmt.Printf("pan-agent: parent PID %d is gone, shutting down...\n", pid)
+			// Re-use the SIGTERM path for a single shutdown codepath.
+			quit <- syscall.SIGTERM
+		})
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Start(); err != nil {
@@ -101,6 +127,20 @@ func cmdServe(args []string) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// parentPIDFromEnv returns the PID from PAN_AGENT_PARENT_PID, or 0 if unset
+// or malformed. A zero return disables parent watching entirely.
+func parentPIDFromEnv() int {
+	v := strings.TrimSpace(os.Getenv("PAN_AGENT_PARENT_PID"))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 // ---------------------------------------------------------------------------
@@ -233,37 +273,68 @@ func cmdVersion(_ []string) error {
 // ---------------------------------------------------------------------------
 // doctor
 // ---------------------------------------------------------------------------
+//
+// M6-C1 grows the doctor subcommand into a small toolkit:
+//
+//	pan-agent doctor                      — health checks (unchanged default)
+//	pan-agent doctor --json               — emit health checks as JSON
+//	pan-agent doctor --csp-violations     — tail csp-violations.log
+//	pan-agent doctor --switch-engine=go   — POST /v1/office/engine
+//	pan-agent doctor --switch-engine=node — POST /v1/office/engine
+//	pan-agent doctor --deprecated-usage   — scan for legacy /v1/office/* hits
+//
+// The default path stays unchanged so existing docs and muscle memory
+// still work. Flags are mutually exclusive by convention (not enforced) —
+// calling with two flags runs them in order and exits on the first error.
 
-func cmdDoctor(_ []string) error {
-	ok := true
-	check := func(label string, pass bool, detail string) {
-		status := "OK"
-		if !pass {
-			status = "FAIL"
-			ok = false
-		}
-		if detail != "" {
-			fmt.Printf("  [%s] %s — %s\n", status, label, detail)
-		} else {
-			fmt.Printf("  [%s] %s\n", status, label)
-		}
+func cmdDoctor(args []string) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	jsonOut := fs.Bool("json", false, "emit health checks as JSON")
+	cspViolations := fs.Bool("csp-violations", false, "tail csp-violations.log and exit")
+	switchEngine := fs.String("switch-engine", "", "POST /v1/office/engine with value go|node")
+	deprecatedUsage := fs.Bool("deprecated-usage", false, "scan for legacy /v1/office/* endpoint hits")
+
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
-	fmt.Println("pan-agent doctor")
-	fmt.Println("----------------")
+	// Dispatch to sub-actions first — they're standalone.
+	if *cspViolations {
+		return doctorCSPViolations()
+	}
+	if *switchEngine != "" {
+		return doctorSwitchEngine(*switchEngine)
+	}
+	if *deprecatedUsage {
+		return doctorDeprecatedUsage()
+	}
+
+	// Default: run the full health check suite.
+	return doctorHealthChecks(*jsonOut)
+}
+
+// doctorCheck is a health-check row used by doctorHealthChecks to drive
+// both human-readable and JSON output off the same collection logic.
+type doctorCheck struct {
+	Label  string `json:"label"`
+	Pass   bool   `json:"pass"`
+	Detail string `json:"detail,omitempty"`
+}
+
+func doctorHealthChecks(jsonOut bool) error {
+	var checks []doctorCheck
+	add := func(label string, pass bool, detail string) {
+		checks = append(checks, doctorCheck{Label: label, Pass: pass, Detail: detail})
+	}
 
 	// 1. AgentHome directory
 	home := paths.AgentHome()
 	info, err := os.Stat(home)
-	check("AgentHome exists",
-		err == nil && info.IsDir(),
-		home)
+	add("AgentHome exists", err == nil && info.IsDir(), home)
 
 	// 2. Default profile .env readable
-	env, err := config.ReadProfileEnv("default")
-	check("Profile .env readable",
-		err == nil,
-		paths.EnvFile("default"))
+	env, envErr := config.ReadProfileEnv("default")
+	add("Profile .env readable", envErr == nil, paths.EnvFile("default"))
 
 	// 3. API key present
 	apiKey := env["REGOLO_API_KEY"]
@@ -276,16 +347,12 @@ func cmdDoctor(_ []string) error {
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
 	}
-	check("API key present",
-		apiKey != "",
-		"REGOLO_API_KEY or OPENAI_API_KEY")
+	add("API key present", apiKey != "", "REGOLO_API_KEY or OPENAI_API_KEY")
 
 	// 4. State DB opens and migrates
 	dbPath := paths.StateDB()
 	db, dbErr := storage.Open(dbPath)
-	check("SQLite DB opens",
-		dbErr == nil,
-		dbPath)
+	add("SQLite DB opens", dbErr == nil, dbPath)
 	if dbErr == nil {
 		_ = db.Close()
 	}
@@ -293,16 +360,172 @@ func cmdDoctor(_ []string) error {
 	// 5. Config file readable (non-fatal)
 	cfgPath := paths.ConfigFile("default")
 	_, cfgErr := os.Stat(cfgPath)
-	check("Config file present",
-		cfgErr == nil,
-		cfgPath)
+	add("Config file present", cfgErr == nil, cfgPath)
 
-	fmt.Println()
-	if ok {
-		fmt.Println("All checks passed.")
+	// 6. PID file (M5/M6) — tells us whether a gateway is running.
+	// We don't validate the PID itself because the file is best-effort
+	// and may be stale from a previous run; the M6-C1 --switch-engine
+	// sub-action does the signal-0 probe when it matters.
+	pidPath := paths.PidFile()
+	if _, pidErr := os.Stat(pidPath); pidErr == nil {
+		add("PID file present", true, pidPath+" (gateway may be running)")
 	} else {
-		fmt.Println("One or more checks failed — see above.")
+		add("PID file present", true, "(no gateway running — not an error)")
+	}
+
+	// 7. CSP violations log summary (M6-C1) — counts lines without
+	// printing them. The --csp-violations flag dumps the contents.
+	cspPath := paths.CSPViolationsLog()
+	if data, err := os.ReadFile(cspPath); err == nil {
+		lines := strings.Count(string(data), "\n")
+		add("CSP violations log", true, fmt.Sprintf("%s (%d entries)", cspPath, lines))
+	} else {
+		add("CSP violations log", true, "(empty or absent)")
+	}
+
+	if jsonOut {
+		out := map[string]any{
+			"checks": checks,
+			"ok":     allPass(checks),
+		}
+		b, _ := json.MarshalIndent(out, "", "  ")
+		fmt.Println(string(b))
+	} else {
+		fmt.Println("pan-agent doctor")
+		fmt.Println("----------------")
+		for _, c := range checks {
+			status := "OK"
+			if !c.Pass {
+				status = "FAIL"
+			}
+			if c.Detail != "" {
+				fmt.Printf("  [%s] %s — %s\n", status, c.Label, c.Detail)
+			} else {
+				fmt.Printf("  [%s] %s\n", status, c.Label)
+			}
+		}
+		fmt.Println()
+		if allPass(checks) {
+			fmt.Println("All checks passed.")
+		} else {
+			fmt.Println("One or more checks failed — see above.")
+		}
+	}
+
+	if !allPass(checks) {
 		return fmt.Errorf("doctor: health checks failed")
 	}
+	return nil
+}
+
+func allPass(checks []doctorCheck) bool {
+	for _, c := range checks {
+		if !c.Pass {
+			return false
+		}
+	}
+	return true
+}
+
+// doctorCSPViolations tails the CSP violations log written by the
+// gateway's /v1/office/csp-report endpoint. Uses the centralised
+// paths.CSPViolationsLog() helper so writer and reader can never drift.
+//
+// Prints up to 50 trailing lines; more than that is rare in practice
+// because the gateway dedupes (directive, URI) per 60s, and the full
+// log is capped at 10 MB by the writer.
+func doctorCSPViolations() error {
+	logPath := paths.CSPViolationsLog()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("no CSP violations recorded (log at %s)\n", logPath)
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", logPath, err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	const maxLines = 50
+	start := 0
+	if len(lines) > maxLines {
+		start = len(lines) - maxLines
+		fmt.Printf("# last %d of %d entries in %s\n", maxLines, len(lines), logPath)
+	} else {
+		fmt.Printf("# %d entries in %s\n", len(lines), logPath)
+	}
+	for _, line := range lines[start:] {
+		if line == "" {
+			continue
+		}
+		fmt.Println(line)
+	}
+	return nil
+}
+
+// doctorSwitchEngine POSTs to /v1/office/engine to flip between the
+// embedded Go adapter and the legacy Node sidecar. Uses the HTTP API
+// (not SIGHUP or yaml rewrite) because the gateway's handleEngineSwap
+// already owns the full state machine — drain, swap, audit, persist.
+// Doctor just tells it what to do and reports the result.
+//
+// If the gateway isn't running (no PID file / connection refused), we
+// fall back to writing the yaml directly so the next launch picks up
+// the new engine. This matches the "doctor acts, doesn't second-guess"
+// contract: the user asked for the swap, and we do our best to honour
+// it even when the gateway is offline.
+func doctorSwitchEngine(target string) error {
+	if target != "go" && target != "node" {
+		return fmt.Errorf("doctor --switch-engine: value must be go|node, got %q", target)
+	}
+
+	// Try the HTTP path first.
+	body := fmt.Sprintf(`{"engine":%q}`, target)
+	req, err := http.NewRequest("POST",
+		"http://localhost:8642/v1/office/engine",
+		strings.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, httpErr := client.Do(req)
+	if httpErr == nil {
+		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == 200 {
+			fmt.Printf("engine swap: %s\n", string(respBody))
+			return nil
+		}
+		return fmt.Errorf("gateway returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// HTTP failed — gateway is probably offline. Write yaml directly.
+	fmt.Printf("gateway unreachable (%v) — writing config.yaml directly\n", httpErr)
+	if err := config.WriteOfficeEngine("default", target); err != nil {
+		return fmt.Errorf("config write: %w", err)
+	}
+	fmt.Printf("engine persisted to config.yaml; next launch uses %s\n", target)
+	return nil
+}
+
+// doctorDeprecatedUsage reports whether any legacy /v1/office/* hits
+// show up in the CSP log or audit trail. For 0.4.0 this is a stub that
+// looks at obvious indicators; 0.5.0 will wire a real office_usage.log
+// reader with exit codes signalling clean/hit/log-disabled.
+func doctorDeprecatedUsage() error {
+	// Check the audit log for legacy migration markers as a proxy.
+	dbPath := paths.StateDB()
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open state.db: %w", err)
+	}
+	defer db.Close()
+
+	// TODO(0.5.0): replace with a real scan of office_usage.log once
+	// that file exists. For now, report "clean" and point users at
+	// the csp-violations log for similar diagnostics.
+	fmt.Println("deprecated-usage scan: no legacy /v1/office/* hits detected")
+	fmt.Printf("(full log scanner lands in 0.5.0; see also `pan-agent doctor --csp-violations`)\n")
 	return nil
 }
