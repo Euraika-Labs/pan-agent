@@ -15,11 +15,11 @@ import (
 // values. This is a stricter superset of internal/gateway/middleware.go's
 // allowedOrigins.
 var adapterAllowedOrigins = map[string]bool{
-	"http://localhost:5173":  true, // Vite dev
-	"http://127.0.0.1:5173":  true, // Vite dev (alt loopback name)
-	"http://localhost:8642":  true, // same-origin served bundle
-	"http://127.0.0.1:8642":  true,
-	"tauri://localhost":      true, // Tauri production shell
+	"http://localhost:5173": true, // Vite dev
+	"http://127.0.0.1:5173": true, // Vite dev (alt loopback name)
+	"http://localhost:8642": true, // same-origin served bundle
+	"http://127.0.0.1:8642": true,
+	"tauri://localhost":     true, // Tauri production shell
 }
 
 // sessionTTL is the lifetime of a session token cookie issued on

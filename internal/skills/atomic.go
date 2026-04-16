@@ -51,13 +51,3 @@ func snapshotFile(path string) ([]byte, bool) {
 	}
 	return data, true
 }
-
-// restoreFile writes previously-captured bytes back to path. If snapshot had
-// no prior content (existed=false), the file is removed.
-func restoreFile(path string, data []byte, existed bool, perm os.FileMode) error {
-	if !existed {
-		_ = os.Remove(path)
-		return nil
-	}
-	return atomicWrite(path, data, perm)
-}

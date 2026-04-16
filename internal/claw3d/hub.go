@@ -38,10 +38,3 @@ func (h *Hub) Broadcast(frame []byte) {
 		c.send(frame)
 	}
 }
-
-// clientCount exists for tests and /v1/office/health reporting.
-func (h *Hub) clientCount() int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.clients)
-}

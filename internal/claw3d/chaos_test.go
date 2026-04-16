@@ -268,4 +268,3 @@ func TestChaos_ParentWatcherExit(t *testing.T) {
 		t.Fatal("pan-agent did not exit within 10s after parent death")
 	}
 }
-

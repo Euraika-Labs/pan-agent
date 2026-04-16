@@ -1,6 +1,7 @@
 package claw3d
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -101,7 +102,10 @@ type testSink struct{ send func([]byte) }
 // required).
 func dispatchTest(sink *testSink, raw []byte) {
 	c := &adapterClient{out: make(chan []byte, 16)}
-	dispatch(nil, c, raw)
+	// staticcheck SA1012: pass context.TODO rather than nil. dispatch does
+	// not currently read from the context, but a nil-Context argument
+	// still leaves future code one missed check away from a crash.
+	dispatch(context.TODO(), c, raw)
 	// Drain whatever dispatch produced — at M2 each req produces at most one
 	// synchronous response frame.
 	for {

@@ -9,9 +9,9 @@ import (
 // stubTool is a minimal Tool for registry-isolation tests.
 type stubTool struct{ name string }
 
-func (s stubTool) Name() string                   { return s.name }
-func (s stubTool) Description() string            { return "test stub" }
-func (s stubTool) Parameters() json.RawMessage    { return json.RawMessage(`{}`) }
+func (s stubTool) Name() string                { return s.name }
+func (s stubTool) Description() string         { return "test stub" }
+func (s stubTool) Parameters() json.RawMessage { return json.RawMessage(`{}`) }
 func (s stubTool) Execute(_ context.Context, _ json.RawMessage) (*Result, error) {
 	return &Result{Output: s.name}, nil
 }
