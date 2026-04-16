@@ -24,9 +24,7 @@ fn main() {
                 .args(["serve", "--port", "8642"])
                 .env("PAN_AGENT_PARENT_PID", &parent_pid);
 
-            let (mut rx, child) = sidecar
-                .spawn()
-                .expect("failed to spawn pan-agent sidecar");
+            let (mut rx, child) = sidecar.spawn().expect("failed to spawn pan-agent sidecar");
 
             app.manage(SidecarHandle(Mutex::new(Some(child))));
 
@@ -34,16 +32,10 @@ fn main() {
                 while let Some(event) = rx.recv().await {
                     match event {
                         CommandEvent::Stdout(line) => {
-                            eprintln!(
-                                "[pan-agent] {}",
-                                String::from_utf8_lossy(&line).trim_end()
-                            );
+                            eprintln!("[pan-agent] {}", String::from_utf8_lossy(&line).trim_end());
                         }
                         CommandEvent::Stderr(line) => {
-                            eprintln!(
-                                "[pan-agent] {}",
-                                String::from_utf8_lossy(&line).trim_end()
-                            );
+                            eprintln!("[pan-agent] {}", String::from_utf8_lossy(&line).trim_end());
                         }
                         CommandEvent::Terminated(payload) => {
                             eprintln!(
