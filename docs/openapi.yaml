@@ -1,0 +1,338 @@
+openapi: 3.1.0
+info:
+  title: Pan-Agent HTTP API
+  version: 0.4.2
+  description: |
+    Localhost-first REST + Server-Sent-Events API served by the Pan-Agent
+    Go backend (default: `http://127.0.0.1:8642`). The Tauri desktop is
+    one client — any HTTP client can drive the same endpoints.
+
+    **Scope of this document:** this is a live, incomplete specification.
+    The backend has ~60 registered routes in
+    `internal/gateway/routes.go`; this file documents the shape of the
+    unified error envelope, the core chat / approvals / sessions / config
+    flows, and acts as the reference for new endpoints.
+
+    The `scripts/verify-api.sh` contract check ensures every route
+    registered in the Go mux is either documented below or explicitly
+    listed in `openapi-exempt.txt`.
+servers:
+  - url: http://127.0.0.1:8642
+    description: Default localhost server
+
+# -------------------------------------------------------------------
+# Reusable components: error envelope + common domain types
+# -------------------------------------------------------------------
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Required ONLY when the server is bound to a non-loopback host
+        (see `cmd/pan-agent` — `--host`). Token is supplied via
+        `PAN_AGENT_AUTH_TOKEN` and must be sent as
+        `Authorization: Bearer <token>` or `X-Pan-Agent-Token: <token>`.
+        On the default loopback bind (127.0.0.1) authentication is
+        disabled by design.
+
+  schemas:
+    APIError:
+      description: |
+        Unified error envelope used by every non-2xx response. The `code`
+        field is stable and machine-readable (see `codeForStatus` in
+        `internal/gateway/routes.go`).
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum:
+            - invalid_request
+            - unauthorized
+            - forbidden
+            - not_found
+            - conflict
+            - not_implemented
+            - host_not_allowed
+            - internal_error
+            - client_error
+            - profile_mismatch
+        details:
+          type: object
+          additionalProperties: true
+
+    Session:
+      type: object
+      required: [id, source, started_at, message_count]
+      properties:
+        id: { type: string }
+        source: { type: string, example: pan-agent }
+        started_at: { type: integer, format: int64, description: Unix milliseconds }
+        ended_at: { type: integer, format: int64, nullable: true }
+        message_count: { type: integer }
+        model: { type: string }
+        title: { type: string }
+
+    Message:
+      type: object
+      required: [id, session_id, role, content, timestamp]
+      properties:
+        id: { type: integer, format: int64 }
+        session_id: { type: string }
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content: { type: string }
+        timestamp: { type: integer, format: int64 }
+
+    Approval:
+      type: object
+      required: [id, session_id, tool_name, status, created_at, level]
+      properties:
+        id: { type: string }
+        session_id: { type: string }
+        tool_name: { type: string }
+        arguments: { type: string, description: JSON-encoded tool args }
+        status: { type: string, enum: [pending, approved, rejected] }
+        created_at: { type: integer, format: int64 }
+        resolved_at: { type: integer, format: int64, nullable: true }
+        level:
+          type: integer
+          enum: [0, 1, 2]
+          description: 0=Safe, 1=Dangerous, 2=Catastrophic
+        pattern_key: { type: string }
+        description: { type: string }
+
+    SSEEvent:
+      description: |
+        One decoded server-sent-event from `/v1/chat/completions`. The
+        transport wraps the JSON in `data: <json>\n\n` frames terminated
+        by `data: [DONE]\n\n`. See `internal/gateway/chat.go:sseEvent`.
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [chunk, tool_call, approval_required, tool_result, usage, error, done]
+        content: { type: string }
+        tool_call: { type: object, additionalProperties: true }
+        approval_id: { type: string }
+        approval_level: { type: integer, enum: [1, 2] }
+        approval_pattern_key: { type: string }
+        approval_summary: { type: string }
+        tool_call_id: { type: string }
+        result: { type: string }
+        usage: { type: object, additionalProperties: true }
+        session_id: { type: string }
+        error: { type: string }
+
+  responses:
+    Error:
+      description: Error response using the unified envelope.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/APIError" }
+
+security:
+  - {}              # Loopback default
+  - bearerAuth: []  # Non-loopback
+
+# -------------------------------------------------------------------
+# Paths — reference endpoints. The full route table lives in
+# internal/gateway/routes.go; this section documents the canonical flow.
+# -------------------------------------------------------------------
+paths:
+  /v1/health:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /v1/chat/completions:
+    post:
+      summary: Stream a chat completion + tool-call agent loop (SSE)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items: { $ref: "#/components/schemas/Message" }
+                model: { type: string }
+                stream: { type: boolean, enum: [true] }
+                session_id: { type: string }
+                tools: { type: array, items: { type: object, additionalProperties: true } }
+      responses:
+        "200":
+          description: |
+            Server-sent-events stream. Each event is a JSON-encoded
+            SSEEvent wrapped in `data: ...\n\n`; the stream ends with
+            `data: [DONE]\n\n`.
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/SSEEvent" }
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/chat/abort:
+    post:
+      summary: Cancel an in-flight chat completion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id]
+              properties:
+                session_id: { type: string }
+      responses:
+        "200":
+          description: Abort accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: aborted }
+                  count: { type: integer, description: concurrent aborts fired }
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/approvals:
+    get:
+      summary: List pending approvals
+      responses:
+        "200":
+          description: List of approval records
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Approval" }
+
+  /v1/approvals/{id}:
+    get:
+      summary: Fetch one approval by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Approval record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Resolve an approval
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved]
+              properties:
+                approved: { type: boolean }
+      responses:
+        "200":
+          description: Resolution applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: resolved }
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/sessions:
+    get:
+      summary: List sessions
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Session" }
+
+  /v1/config:
+    get:
+      summary: Read active profile's config (masked)
+      responses:
+        "200":
+          description: Resolved config — secret fields redacted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    put:
+      summary: Update active profile's config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile: { type: string, description: must match server's active profile }
+                env: { type: object, additionalProperties: { type: string } }
+                model:
+                  type: object
+                  properties:
+                    provider: { type: string }
+                    model: { type: string }
+                    baseUrl: { type: string }
+                credentialPool:
+                  type: object
+                  additionalProperties: { type: array }
+                platformEnabled:
+                  type: object
+                  additionalProperties: { type: boolean }
+      responses:
+        "200":
+          description: Config saved
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/openapi.yaml:
+    get:
+      summary: Serve this OpenAPI document
+      responses:
+        "200":
+          description: OpenAPI YAML
+          content:
+            application/yaml: {}
+            text/yaml: {}

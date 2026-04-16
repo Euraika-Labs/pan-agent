@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +17,41 @@ import (
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 )
+
+// checkNavigableURL enforces a scheme + host allowlist for browser.navigate.
+// The prior implementation accepted any URL — including file:// (local-file
+// read) and http://localhost:8642 (self-SSRF against the agent's own API).
+// Set PAN_AGENT_BROWSER_ALLOW_LOCAL=true to opt into loopback access (for
+// legitimate local-dev workflows).
+func checkNavigableURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" {
+		return fmt.Errorf("invalid url")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("scheme %q not allowed (http/https only)", u.Scheme)
+	}
+	allowLocal := strings.EqualFold(os.Getenv("PAN_AGENT_BROWSER_ALLOW_LOCAL"), "true")
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("host is empty")
+	}
+	if allowLocal {
+		return nil
+	}
+	lowered := strings.ToLower(host)
+	if lowered == "localhost" || lowered == "localhost." {
+		return fmt.Errorf("loopback host blocked (set PAN_AGENT_BROWSER_ALLOW_LOCAL=true to enable)")
+	}
+	// IP-literal check: block loopback + private RFC 1918 + link-local.
+	if ip := net.ParseIP(lowered); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("private/loopback IP blocked (set PAN_AGENT_BROWSER_ALLOW_LOCAL=true to enable)")
+		}
+	}
+	return nil
+}
 
 func init() {
 	Register(&browserTool{})
@@ -160,12 +197,15 @@ func (b *browserTool) Execute(ctx context.Context, raw json.RawMessage) (*Result
 // Operation handlers
 // ---------------------------------------------------------------------------
 
-func (b *browserTool) navigate(ctx context.Context, page *rod.Page, url string) (*Result, error) {
-	if url == "" {
+func (b *browserTool) navigate(ctx context.Context, page *rod.Page, target string) (*Result, error) {
+	if target == "" {
 		return &Result{Error: "navigate: url is required"}, nil
 	}
+	if err := checkNavigableURL(target); err != nil {
+		return &Result{Error: "navigate: " + err.Error()}, nil
+	}
 
-	if err := page.Context(ctx).Navigate(url); err != nil {
+	if err := page.Context(ctx).Navigate(target); err != nil {
 		return &Result{Error: fmt.Sprintf("navigate: %v", err)}, nil
 	}
 

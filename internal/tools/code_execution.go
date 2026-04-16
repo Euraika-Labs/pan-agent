@@ -142,17 +142,18 @@ func buildCommand(ctx context.Context, lang, code, workDir string) (*exec.Cmd, e
 }
 
 // shellCommand returns a shell exec.Cmd appropriate for the current OS.
+// On Windows we intentionally skip exec.LookPath("bash"/"pwsh") — user-
+// writable PATH entries (%USERPROFILE%\bin, %APPDATA%\npm, CWD) would let
+// an attacker shadow the system interpreter. Fall straight through to
+// cmd.exe resolved from %SystemRoot%\System32, which is TrustedInstaller-
+// owned on a default install.
 func shellCommand(ctx context.Context, code string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
-		// On Windows prefer PowerShell Core (pwsh) or fall back to cmd.exe.
-		if path, err := exec.LookPath("bash"); err == nil {
-			// Git Bash / WSL bash available.
-			return exec.CommandContext(ctx, path, "-c", code)
+		sysRoot := os.Getenv("SystemRoot")
+		if sysRoot == "" {
+			sysRoot = `C:\Windows`
 		}
-		if path, err := exec.LookPath("pwsh"); err == nil {
-			return exec.CommandContext(ctx, path, "-Command", code)
-		}
-		return exec.CommandContext(ctx, "cmd", "/C", code)
+		return exec.CommandContext(ctx, sysRoot+`\System32\cmd.exe`, "/C", code)
 	}
 	// POSIX systems: use /bin/sh for portability.
 	return exec.CommandContext(ctx, "/bin/sh", "-c", code)

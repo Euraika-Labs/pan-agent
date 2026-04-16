@@ -202,4 +202,24 @@ var CatastrophicPatterns = []Pattern{
 	p(`\bwevtutil\s+sl\b[^\n]*/e:false\b`, "disable Windows event log channel (wevtutil sl /e:false)", "disable Windows event log channel (wevtutil sl /e:false)"),
 	// Disable Volume Shadow Copy service
 	p(`\bsc(?:\.exe)?\s+(stop|delete|config)\s+vss\b`, "disable Volume Shadow Copy service", "disable Volume Shadow Copy service"),
+
+	// -------------------------------------------------------------------
+	// Unix-side catastrophic commands (previously only Dangerous / level-1).
+	// Promoted here because they are system-destructive or wormable and
+	// deserve typed confirmation rather than a single-click approval.
+	// -------------------------------------------------------------------
+
+	// Recursive delete anchored at / or a protected system root. Matches
+	// any combination of -r/-R/-f or --recursive/--force in any order.
+	p(`\brm\s+(-[rRfF]+\s*|--(recursive|force)\s+){1,}/\s*($|\*|etc\b|usr\b|bin\b|sbin\b|boot\b|var\b|lib\b|system\b|library\b)`,
+		"recursive delete at system root", "recursive delete at system root"),
+	// dd writing to a raw block device.
+	p(`\bdd\b[^\n]*\bof=\s*/dev/(sd|nvme|hd|mmcblk|loop)`, "dd to raw block device", "dd to raw block device"),
+	// mkfs targeting a device.
+	p(`\bmkfs(?:\.[a-z0-9]+)?\s+[^\n]*/dev/`, "mkfs on a device", "mkfs on a device"),
+	// curl/wget piped to a shell — self-propagating remote-exec primitive.
+	p(`\b(curl|wget)\b[^\n]*\|\s*(ba)?sh\b`, "pipe remote content to shell (catastrophic)", "pipe remote content to shell (catastrophic)"),
+	// tee / redirect into /etc/passwd, /etc/shadow, /etc/sudoers.
+	p(`(>>?|tee)\s+["']?/etc/(passwd|shadow|sudoers|ssh/)`,
+		"overwrite critical system file", "overwrite critical system file"),
 }

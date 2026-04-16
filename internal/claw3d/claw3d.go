@@ -395,6 +395,10 @@ func StartDevServer() error {
 		fmt.Sprintf("NEXT_PUBLIC_GATEWAY_URL=%s", GetWsURL()),
 	)
 
+	// Spawn the Claw3D Next.js dev server. `npm` is resolved via findNpm()
+	// which returns either the absolute path to a bundled npm or rejects.
+	// Arguments are fixed literals. Not agent-controlled.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(npm, "run", "dev")
 	cmd.Dir = repoDir
 	cmd.Env = env
@@ -471,6 +475,9 @@ func StartAdapter() error {
 		return fmt.Errorf("claw3d: npm not found: %w", err)
 	}
 
+	// Spawn the Claw3D hermes adapter. `npm` resolved via findNpm(),
+	// arguments are fixed literals, not agent-controlled.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(npm, "run", "hermes-adapter")
 	cmd.Dir = repoDir
 	cmd.Env = append(os.Environ(),
@@ -562,7 +569,12 @@ func findNpm() (string, error) {
 
 // runCapture runs a command and funnels its combined stdout+stderr through
 // progress. Returns a non-nil error if the process exits non-zero.
+//
+// All callers pass fixed tool names (git, npm, make) and fixed argument
+// arrays. The variadic signature is agent-ergonomic; it is not a vector
+// for agent-controlled exec.
 func runCapture(progress func(string), dir, name string, args ...string) error {
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	combined, err := cmd.CombinedOutput()

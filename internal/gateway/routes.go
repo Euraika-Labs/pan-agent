@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -145,6 +146,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// ----------------------------------------------------------------- health
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+
+	// ----------------------------------------------------------------- openapi
+	// Serves the (partial, hand-maintained) OpenAPI spec documenting the
+	// unified error envelope + reference endpoints. See docs/openapi.yaml.
+	mux.HandleFunc("GET /v1/openapi.yaml", s.handleOpenAPISpec)
 
 	// -------------------------------------------------------------- profiles
 	mux.HandleFunc("GET /v1/config/profiles", s.handleProfileList)
@@ -520,6 +526,19 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	if profile == "" {
 		profile = s.profile
 	}
+	// M9 (0.4.2): reject cross-profile writes. A mismatched body.Profile
+	// used to silently write env + model + credential changes to a
+	// different profile's files while the LLM client in *this* server
+	// kept the current profile — so the UI would appear to have updated
+	// settings that actually landed elsewhere. Per-profile configuration
+	// must be made by a server started with the target profile.
+	if profile != s.profile {
+		writeAPIError(w, http.StatusBadRequest, "profile_mismatch",
+			fmt.Sprintf("cannot write config for profile %q from server bound to %q — "+
+				"restart pan-agent with --profile %s", profile, s.profile, profile),
+			map[string]any{"requested_profile": profile, "server_profile": s.profile})
+		return
+	}
 
 	// Update env values.
 	for k, v := range body.Env {
@@ -846,11 +865,14 @@ func humaniseToolName(name string) string {
 	return strings.Join(parts, " ")
 }
 
-// handleToolToggle enables or disables a toolset by key.
-// Tool toggling is a config concern; for now we acknowledge the request and return 200.
+// handleToolToggle returns 501 Not Implemented. The endpoint previously
+// accepted the toggle key and silently returned 200 without persisting
+// anything — which misled every frontend screen that expected the toggle
+// to take effect. Surface the gap honestly until the feature ships.
 func (s *Server) handleToolToggle(w http.ResponseWriter, r *http.Request) {
-	_ = r.PathValue("key")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	key := r.PathValue("key")
+	writeError(w, http.StatusNotImplemented,
+		fmt.Sprintf("tool toggling is not yet implemented (key=%q)", key))
 }
 
 // =============================================================================
@@ -1293,9 +1315,63 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// APIError is the unified error envelope. All NEW handlers should use
+// writeAPIError — the legacy writeError / writeOpError wrappers remain for
+// backward compatibility but the "error" field is now guaranteed to be
+// populated on any non-2xx response across the full 50-endpoint surface.
+// Code is a stable machine-readable identifier ("invalid_request",
+// "not_found", "conflict", "internal_error", "not_implemented",
+// "unauthorized"); Details carries optional structured context without a
+// fixed schema (callers document their own details).
+type APIError struct {
+	Error   string         `json:"error"`
+	Code    string         `json:"code,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
+// writeAPIError emits the unified error envelope.
+func writeAPIError(w http.ResponseWriter, status int, code, msg string, details map[string]any) {
+	writeJSON(w, status, APIError{Error: msg, Code: code, Details: details})
+}
+
 // writeError writes a JSON error envelope.
+//
+// Deprecated: prefer writeAPIError which includes a stable machine-
+// readable Code. writeError remains for the ~50 legacy call sites that
+// historically returned plain {"error": msg}; migrating each to
+// writeAPIError with an appropriate code is tracked as a follow-up.
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	writeJSON(w, status, APIError{Error: msg, Code: codeForStatus(status)})
+}
+
+// codeForStatus maps common HTTP status codes to stable API error codes
+// so that callers of the legacy writeError still get a structured `code`
+// in the response envelope.
+func codeForStatus(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "invalid_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusConflict:
+		return "conflict"
+	case http.StatusNotImplemented:
+		return "not_implemented"
+	case http.StatusMisdirectedRequest:
+		return "host_not_allowed"
+	default:
+		if status >= 500 {
+			return "internal_error"
+		}
+		if status >= 400 {
+			return "client_error"
+		}
+		return ""
+	}
 }
 
 // queryInt parses s as an integer, returning fallback on any parse error.

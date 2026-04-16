@@ -107,7 +107,14 @@ func (s *sessionStore) reapExpiredLocked() {
 // issue mints a new 128-bit token, records its expiry, and sets a
 // loopback-scoped HttpOnly cookie on the response. Crosses reapThreshold →
 // eagerly prune before insert.
-func (s *sessionStore) issue(w http.ResponseWriter) string {
+//
+// Secure is set from the incoming request's TLS state: when served over
+// HTTPS the cookie is marked Secure to prevent transmission in the clear;
+// when served over plain HTTP (loopback dev) it is not, because a Secure
+// cookie would silently fail to attach. A request-sniffing proxy setting
+// X-Forwarded-Proto=https would NOT pass through here — we rely on the
+// real TLS handshake state which cannot be forged.
+func (s *sessionStore) issue(w http.ResponseWriter, r *http.Request) string {
 	buf := make([]byte, 16)
 	_, _ = rand.Read(buf)
 	tok := hex.EncodeToString(buf)
@@ -118,14 +125,23 @@ func (s *sessionStore) issue(w http.ResponseWriter) string {
 	}
 	s.live[tok] = expires
 	s.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     "claw3d_sess",
 		Value:    tok,
 		Path:     "/office/",
 		HttpOnly: true,
+		Secure:   true, // default; may be downgraded for plain-HTTP loopback below
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expires,
-	})
+	}
+	// Plain-HTTP loopback (127.0.0.1 / localhost without TLS) must NOT
+	// mark the cookie Secure — the browser would refuse to attach it on
+	// subsequent requests and the session would silently never authenticate.
+	// Over real TLS (r.TLS != nil) we keep Secure=true.
+	if r == nil || r.TLS == nil {
+		cookie.Secure = false
+	}
+	http.SetCookie(w, cookie)
 	return tok
 }
 

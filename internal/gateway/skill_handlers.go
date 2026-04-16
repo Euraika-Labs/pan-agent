@@ -67,8 +67,8 @@ func (s *Server) handleProposalApprove(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		_ = mgr.RejectProposal(id, "applied: "+p.Metadata.Intent+" — "+body.ReviewerNote)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "applied", "intent": p.Metadata.Intent})
+		_ = mgr.RejectProposal(id, "applied: "+string(p.Metadata.Intent)+" — "+body.ReviewerNote)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "applied", "intent": string(p.Metadata.Intent)})
 		return
 
 	case skills.IntentSplit:

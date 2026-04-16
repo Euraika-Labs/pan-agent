@@ -22,7 +22,8 @@ func TestSessionStore_ReaperReclaimsExpired(t *testing.T) {
 
 	// Issue a fresh token — this should trigger the eager sweep.
 	w := httptest.NewRecorder()
-	_ = s.issue(w)
+	r := httptest.NewRequest("GET", "http://127.0.0.1/office/", nil)
+	_ = s.issue(w, r)
 
 	s.mu.RLock()
 	n := len(s.live)

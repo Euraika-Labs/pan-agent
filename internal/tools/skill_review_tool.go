@@ -124,17 +124,17 @@ func reviewList(mgr *skills.Manager) (*Result, error) {
 		return &Result{Error: err.Error()}, nil
 	}
 	type entry struct {
-		ID            string   `json:"id"`
-		Name          string   `json:"name"`
-		Category      string   `json:"category"`
-		Description   string   `json:"description"`
-		Source        string   `json:"source"`
-		Intent        string   `json:"intent,omitempty"`
-		IntentTargets []string `json:"intent_targets,omitempty"`
-		IntentReason  string   `json:"intent_reason,omitempty"`
-		CreatedAt     int64    `json:"created_at"`
-		Blocked       bool     `json:"guard_blocked"`
-		FindingsCount int      `json:"findings_count"`
+		ID            string        `json:"id"`
+		Name          string        `json:"name"`
+		Category      string        `json:"category"`
+		Description   string        `json:"description"`
+		Source        string        `json:"source"`
+		Intent        skills.Intent `json:"intent,omitempty"`
+		IntentTargets []string      `json:"intent_targets,omitempty"`
+		IntentReason  string        `json:"intent_reason,omitempty"`
+		CreatedAt     int64         `json:"created_at"`
+		Blocked       bool          `json:"guard_blocked"`
+		FindingsCount int           `json:"findings_count"`
 	}
 	out := make([]entry, 0, len(props))
 	for _, p := range props {
@@ -198,10 +198,10 @@ func reviewApprove(mgr *skills.Manager, id, refined, note string) (*Result, erro
 		}
 		// Park the proposal in _rejected with reason "applied" so we keep an
 		// audit trail of what curator actions were approved.
-		_ = mgr.RejectProposal(id, "applied: "+p.Metadata.Intent+" — "+note)
+		_ = mgr.RejectProposal(id, "applied: "+string(p.Metadata.Intent)+" — "+note)
 		out, _ := json.Marshal(map[string]string{
 			"ok":      "true",
-			"applied": p.Metadata.Intent,
+			"applied": string(p.Metadata.Intent),
 			"target":  joinTargets(p.Metadata.IntentTargets),
 		})
 		return &Result{Output: string(out)}, nil
