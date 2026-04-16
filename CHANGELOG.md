@@ -5,6 +5,83 @@ All notable changes to Pan-Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-04-16
+
+Hotfix for two ship-blocking regressions in 0.4.0, both in the "works-only-if-
+Setup-already-ran" class. On a clean install nothing chat-shaped worked: the
+Go sidecar never started, and even when started manually, model selection
+never persisted to disk.
+
+### Fixed
+- **Sidecar never spawned.** `desktop/src-tauri/src/main.rs` now spawns the
+  `pan-agent` sidecar in `tauri::Builder::setup()` via `tauri-plugin-shell`'s
+  `ShellExt::sidecar()`, with `PAN_AGENT_PARENT_PID` set to the Tauri PID so
+  `internal/parentwatch` activates for graceful shutdown when the Tauri
+  parent exits. Tauri's `externalBin` config only *bundles* a binary — you
+  still have to `spawn()` it explicitly, and 0.4.0's `main.rs` had only the
+  `plugin()` / `run()` pair. Net effect in 0.4.0: app installed cleanly, UI
+  launched, every `localhost:8642` fetch failed, Setup wizard could not
+  proceed.
+- **Sidecar lifecycle symmetric with parent.** `RunEvent::ExitRequested`
+  handler calls `child.kill()` on the stored `CommandChild` so the sidecar
+  is terminated on normal app quit. Together with `parentwatch` in the
+  reverse direction (sidecar self-terminates when Tauri is SIGKILLed) this
+  gives a symmetric parent ⇄ child lifecycle.
+- **Sidecar logs surfaced.** Stdout/stderr from the sidecar are streamed to
+  the Tauri process's stderr with a `[pan-agent]` prefix, so crash traces
+  show up in `Console.app` / `journalctl` instead of vanishing.
+- **PUT /v1/config silently dropped model changes on fresh installs.**
+  `internal/config/models.go#SetModelConfig` was early-returning `nil` when
+  `config.yaml` didn't exist, so the write looked successful on the wire
+  (`{"status":"ok"}`) but nothing hit disk. Next GET returned the empty
+  default. Fixed by materialising a minimal `config.yaml` (provider /
+  default / base_url / streaming) on the IsNotExist path, with the same
+  UI→CLI provider name mapping (regolo → custom) as the update path.
+  Covered by two new tests in `internal/config/models_test.go`.
+- **Partial PUT /v1/config clobbered baseUrl to empty.** The Settings
+  screen has a debounced auto-save that fires on every state change
+  including transient half-loaded states, and was PUTing payloads like
+  `{provider:"", model:"X", baseUrl:""}` during hydration. 0.4.0's
+  handler treated every field as "replace", blanking baseUrl on disk and
+  resetting `s.llmClient.BaseURL=""` — the same
+  `unsupported protocol scheme ""` chat error reappeared on the second or
+  third message of a session. `handleConfigPut` now merges the incoming
+  model body against the current on-disk config: empty strings preserve
+  the existing value rather than clearing it. UI-side auto-save racing is
+  a separate follow-up, but the backend invariant now prevents the class
+  of regression regardless of which screen sends a partial payload.
+- **Sidebar didn't respond to window resize.** Fixed width 230 px with
+  `flex-shrink: 0`, no overflow handling, and a brand logo that filled the
+  full sidebar width via Tailwind 4's preflight `img { height: auto }`
+  overriding the `<img height={30}>` attribute. Net effect: on a 480 px
+  window the sidebar ate 48% of the viewport; on a 500 px-tall window the
+  logo and first few nav items consumed the whole rail with the rest
+  clipped. Fixed in `desktop/src/assets/main.css`:
+  - `.sidebar-nav` gets `flex: 1 1 auto; min-height: 0; overflow-y: auto`
+    so long nav lists scroll inside the rail instead of clipping.
+  - `.sidebar-brand img` clamps to `width: clamp(40px, 12vh, 160px)` so
+    the logo scales with viewport height instead of stretching to fit
+    the 230 px sidebar width.
+  - `@media (max-width: 640px)` collapses the sidebar to a 64 px
+    icon-only rail — hides brand name, nav labels, and footer text while
+    keeping Lucide icons visible. Gives the main content area room to
+    breathe down to ~400 px total window width.
+
+### Known gap
+- CI does not smoke-test the packaged `.app` / `.dmg` on any platform. The
+  weekly `e2e-real-webview.yml` job is the only thing that would have caught
+  the sidecar regression, and it excludes macOS (no upstream WKWebView
+  WebDriver). A proper fix — a minimal "launch packaged app, poll
+  `/v1/health`, PUT+GET `/v1/config`, kill" step in `release.yml` — is
+  filed as a follow-up for 0.5.0.
+
+### Known gap
+- CI does not smoke-test the packaged `.app` / `.dmg` on any platform. The
+  weekly `e2e-real-webview.yml` job is the only thing that would have caught
+  this, and it excludes macOS (no upstream WKWebView WebDriver). A proper
+  fix — a minimal "launch packaged app, poll `/v1/health`, kill" step in
+  `release.yml` — is filed as a follow-up for 0.5.0.
+
 ## [0.4.0] - 2026-04-15
 
 Claw3D Office embedded natively in pan-agent. The Node sidecar from 0.3.x is

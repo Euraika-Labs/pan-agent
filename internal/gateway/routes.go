@@ -529,13 +529,32 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Update model config.
+	// Update model config. Treat empty strings as "keep existing" rather
+	// than "clear" — the Settings screen has a debounced auto-save that
+	// fires on every state change including transient half-loaded states,
+	// and used to PUT {provider:"", model:"X", baseUrl:""} during hydration,
+	// blanking baseUrl on disk and breaking chat with "unsupported protocol
+	// scheme" on the next request. Merge against the current on-disk config
+	// so partial updates are safe regardless of which screen sends them.
 	if body.Model != nil {
-		if err := config.SetModelConfig(body.Model.Provider, body.Model.Model, body.Model.BaseURL, profile); err != nil {
+		current := config.GetModelConfig(profile)
+		provider := body.Model.Provider
+		if provider == "" {
+			provider = current.Provider
+		}
+		model := body.Model.Model
+		if model == "" {
+			model = current.Model
+		}
+		baseURL := body.Model.BaseURL
+		if baseURL == "" {
+			baseURL = current.BaseURL
+		}
+		if err := config.SetModelConfig(provider, model, baseURL, profile); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		s.refreshLLMClient(body.Model.BaseURL, body.Model.Model, profile)
+		s.refreshLLMClient(baseURL, model, profile)
 	}
 
 	// Update credential pool.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -83,20 +84,30 @@ func SetModelConfig(provider, model, baseURL, profile string) error {
 	invalidatePrefix("mc:" + profile)
 
 	configFile := paths.ConfigFile(profile)
-	data, err := os.ReadFile(configFile)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	content := string(data)
 
 	// Translate UI provider name to agent CLI value.
 	writeProvider := provider
 	if mapped, ok := cliProviderMap[provider]; ok {
 		writeProvider = mapped
 	}
+
+	data, err := os.ReadFile(configFile)
+	if os.IsNotExist(err) {
+		// Fresh install / fresh profile: materialise a minimal config.yaml so
+		// the three fields the UI just set actually persist. Without this the
+		// PUT /v1/config round-trip looked successful but GET came back empty
+		// and the in-memory s.llmClient got re-set to {"",""} on any screen
+		// re-hydration, breaking chat after the first message.
+		content := fmt.Sprintf(
+			"provider: %q\ndefault: %q\nbase_url: %q\nstreaming: true\n",
+			writeProvider, model, baseURL,
+		)
+		return safeWriteFile(configFile, content)
+	}
+	if err != nil {
+		return err
+	}
+	content := string(data)
 
 	// Update provider:
 	providerRe := regexp.MustCompile(`(?m)^(\s*provider:\s*)["']?[^"'\n#]*["']?`)
