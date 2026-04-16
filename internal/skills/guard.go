@@ -13,7 +13,35 @@ package skills
 import (
 	"strings"
 	"time"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
+
+// normalizeForGuard applies a defense-in-depth normalization pass before
+// pattern matching: NFKC (collapses look-alike unicode + ligatures), zero-
+// width and bidi-override control strip, and lowercase. This is the same
+// class of normalization as approval/check.go's normalize() and closes the
+// "use a different unicode variant to slip past a regex" family of bypasses.
+func normalizeForGuard(s string) string {
+	// NFKC compatibility decomposition + canonical composition.
+	s = norm.NFKC.String(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		// Strip zero-width + bidi-control chars that are a common injection trick.
+		if r == 0x200B || r == 0x200C || r == 0x200D || r == 0xFEFF ||
+			(r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
+			continue
+		}
+		// Strip other format characters (category Cf).
+		if unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
 
 // Finding is one matched pattern.
 type Finding struct {
@@ -57,19 +85,38 @@ func (g *Guard) Scan(content string) ReviewResult {
 		Findings:  make([]Finding, 0, 8),
 	}
 
-	lines := strings.Split(content, "\n")
+	// Scan two streams per line: (1) the raw line so the excerpt shown to
+	// users reflects what they actually wrote, and (2) the normalized line
+	// for pattern matching. This prevents trivial unicode/case bypasses
+	// while preserving a human-readable report.
+	rawLines := strings.Split(content, "\n")
+	normLines := make([]string, len(rawLines))
+	for i, ln := range rawLines {
+		normLines[i] = normalizeForGuard(ln)
+	}
 	for _, p := range builtinPatterns {
 		if len(result.Findings) >= max {
 			break
 		}
+		// Credentials + zero-width injection patterns scan the RAW line so
+		// casing and invisible chars remain visible; all other patterns scan
+		// the normalized line (lowercase + NFKC + zero-width stripped).
+		source := normLines
+		if p.CaseSensitive {
+			source = rawLines
+		}
 		// Scan line by line so we can report the line number.
-		for i, line := range lines {
+		for i, scanLine := range source {
 			if len(result.Findings) >= max {
 				break
 			}
-			m := p.Re.FindString(line)
-			if m == "" {
+			if !p.Re.MatchString(scanLine) {
 				continue
+			}
+			line := rawLines[i]
+			m := p.Re.FindString(scanLine)
+			if m == "" {
+				m = line
 			}
 			if len(m) > 120 {
 				m = m[:120] + "…"

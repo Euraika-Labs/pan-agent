@@ -106,15 +106,20 @@ func (FilesystemTool) opRead(p filesystemParams) (*Result, error) {
 	}
 	defer f.Close()
 
-	buf := make([]byte, filesystemMaxRead)
-	n, err := f.Read(buf)
-	if err != nil && err != io.EOF {
+	// Stat first so we know whether we're going to truncate and so the
+	// subsequent read can request up to cap+1 bytes to detect overrun.
+	fi, statErr := f.Stat()
+
+	// io.ReadAll(io.LimitReader) avoids the short-read bug of a bare
+	// f.Read(buf): Read is not required to fill the buffer, so reading a
+	// 60 KB file into a 100 KB buffer can return <60 KB with no truncation
+	// signal. LimitReader + ReadAll is the idiomatic bounded read.
+	data, err := io.ReadAll(io.LimitReader(f, filesystemMaxRead))
+	if err != nil {
 		return &Result{Error: err.Error()}, nil
 	}
 
-	out := string(buf[:n])
-	// If the file was larger than the cap, say so.
-	fi, statErr := f.Stat()
+	out := string(data)
 	if statErr == nil && fi.Size() > filesystemMaxRead {
 		out += fmt.Sprintf("\n\n[truncated: file is %d bytes, only first %d bytes returned]",
 			fi.Size(), filesystemMaxRead)

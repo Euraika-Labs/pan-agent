@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/config"
+	"github.com/euraika-labs/pan-agent/internal/cron"
 	"github.com/euraika-labs/pan-agent/internal/gateway"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/parentwatch"
@@ -83,6 +84,15 @@ func cmdServe(args []string) error {
 		return err
 	}
 
+	// Refuse non-loopback bind without an auth token. Previously --host
+	// 0.0.0.0 silently exposed the unauthenticated API to the LAN.
+	if !isLoopbackHost(*host) && strings.TrimSpace(os.Getenv("PAN_AGENT_AUTH_TOKEN")) == "" {
+		return fmt.Errorf(
+			"refusing to bind to non-loopback host %q without PAN_AGENT_AUTH_TOKEN; "+
+				"set the env var to a strong secret and clients must send "+
+				"Authorization: Bearer <token>", *host)
+	}
+
 	db, err := storage.Open(paths.StateDB())
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
@@ -111,6 +121,23 @@ func cmdServe(args []string) error {
 		})
 	}
 
+	// Start the cron scheduler. It polls jobs.json every 30s and calls
+	// our Dispatch callback for any Job whose NextRun has passed. We keep
+	// the dispatcher intentionally simple: log the fire + let the existing
+	// gateway surface it via events. A future PR will wire the prompt
+	// through the chat completions endpoint via the bearer-auth token.
+	schedCtx, cancelSched := context.WithCancel(context.Background())
+	defer cancelSched()
+	scheduler := cron.NewScheduler(func(ctx context.Context, j cron.Job) error {
+		fmt.Printf("[cron] fire job id=%s name=%q schedule=%q\n", j.ID, j.Name, j.Schedule)
+		// TODO(#cron-exec): dispatch j.Prompt via the gateway's chat
+		// completions endpoint. Needs PAN_AGENT_AUTH_TOKEN + session
+		// creation; tracked separately to avoid smuggling a policy
+		// decision into this remediation.
+		return nil
+	})
+	scheduler.Start(schedCtx)
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Start(); err != nil {
@@ -127,6 +154,18 @@ func cmdServe(args []string) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// isLoopbackHost reports whether the given bind host refers to the local
+// loopback interface. Binding to anything else (notably 0.0.0.0 or a LAN
+// address) is refused without PAN_AGENT_AUTH_TOKEN.
+func isLoopbackHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	switch h {
+	case "", "127.0.0.1", "::1", "[::1]", "localhost":
+		return true
+	}
+	return false
 }
 
 // parentPIDFromEnv returns the PID from PAN_AGENT_PARENT_PID, or 0 if unset
@@ -478,8 +517,12 @@ func doctorSwitchEngine(target string) error {
 		return fmt.Errorf("doctor --switch-engine: value must be go|node, got %q", target)
 	}
 
-	// Try the HTTP path first.
+	// Try the HTTP path first. The pan-agent gateway binds plain HTTP on
+	// loopback by design (see cmdServe) — there is no TLS listener to
+	// upgrade to. The `http://` URL here targets our own process on
+	// 127.0.0.1 only, never an external host.
 	body := fmt.Sprintf(`{"engine":%q}`, target)
+	// nosemgrep: problem-based-packs.insecure-transport.go-stdlib.http-customized-request.http-customized-request
 	req, err := http.NewRequest("POST",
 		"http://localhost:8642/v1/office/engine",
 		strings.NewReader(body))

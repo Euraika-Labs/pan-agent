@@ -15,6 +15,26 @@ CFArrayRef getWindowList() {
         kCGNullWindowID
     );
 }
+
+// cfDictLookup returns the value at keyCStr in dict, or NULL if absent.
+// Keeps CFStringRef / unsafe.Pointer ceremony on the C side where it does
+// not trigger `go vet`'s unsafe-pointer-misuse check.
+const void* cfDictLookup(CFDictionaryRef dict, const char* keyCStr) {
+    CFStringRef key = CFStringCreateWithCString(NULL, keyCStr, kCFStringEncodingUTF8);
+    const void* val = NULL;
+    CFDictionaryGetValueIfPresent(dict, key, &val);
+    CFRelease(key);
+    return val;
+}
+
+// cfNumberToInt extracts an int value from a CFNumber. Returns 0 if ref
+// is NULL or the conversion fails.
+int cfNumberToInt(CFNumberRef ref) {
+    if (ref == NULL) return 0;
+    int val = 0;
+    CFNumberGetValue(ref, kCFNumberIntType, &val);
+    return val;
+}
 */
 import "C"
 
@@ -42,53 +62,47 @@ func listDarwinWindows() ([]darwinWindow, error) {
 	count := C.CFArrayGetCount(list)
 	var windows []darwinWindow
 
+	// Single C.CString per key, freed at the end of the loop. Previously
+	// allocated once per iteration and never freed — a small but real leak.
+	nameKeyC := C.CString("kCGWindowName")
+	ownerKeyC := C.CString("kCGWindowOwnerName")
+	pidKeyC := C.CString("kCGWindowOwnerPID")
+	widKeyC := C.CString("kCGWindowNumber")
+	defer C.free(unsafe.Pointer(nameKeyC))
+	defer C.free(unsafe.Pointer(ownerKeyC))
+	defer C.free(unsafe.Pointer(pidKeyC))
+	defer C.free(unsafe.Pointer(widKeyC))
+
 	for i := C.CFIndex(0); i < count; i++ {
 		dict := C.CFDictionaryRef(C.CFArrayGetValueAtIndex(list, i))
 
 		// Get window name.
-		var namePtr unsafe.Pointer
-		nameKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowName"), C.kCFStringEncodingUTF8)
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(nameKey), &namePtr) == 0 {
-			C.CFRelease(C.CFTypeRef(nameKey))
+		namePtr := C.cfDictLookup(dict, nameKeyC)
+		if namePtr == nil {
 			continue
 		}
-		C.CFRelease(C.CFTypeRef(nameKey))
-
 		title := cfStringToGo(C.CFStringRef(namePtr))
 		if title == "" {
 			continue
 		}
 
 		// Get owner name (app name).
-		var ownerPtr unsafe.Pointer
-		ownerKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowOwnerName"), C.kCFStringEncodingUTF8)
 		app := ""
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(ownerKey), &ownerPtr) != 0 {
+		if ownerPtr := C.cfDictLookup(dict, ownerKeyC); ownerPtr != nil {
 			app = cfStringToGo(C.CFStringRef(ownerPtr))
 		}
-		C.CFRelease(C.CFTypeRef(ownerKey))
 
 		// Get PID.
-		var pidPtr unsafe.Pointer
-		pidKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowOwnerPID"), C.kCFStringEncodingUTF8)
 		pid := 0
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(pidKey), &pidPtr) != 0 {
-			var val C.int
-			C.CFNumberGetValue(C.CFNumberRef(pidPtr), C.kCFNumberIntType, unsafe.Pointer(&val))
-			pid = int(val)
+		if pidPtr := C.cfDictLookup(dict, pidKeyC); pidPtr != nil {
+			pid = int(C.cfNumberToInt(C.CFNumberRef(pidPtr)))
 		}
-		C.CFRelease(C.CFTypeRef(pidKey))
 
 		// Get window ID.
-		var widPtr unsafe.Pointer
-		widKey := C.CFStringCreateWithCString(0, C.CString("kCGWindowNumber"), C.kCFStringEncodingUTF8)
 		wid := 0
-		if C.CFDictionaryGetValueIfPresent(dict, unsafe.Pointer(widKey), &widPtr) != 0 {
-			var val C.int
-			C.CFNumberGetValue(C.CFNumberRef(widPtr), C.kCFNumberIntType, unsafe.Pointer(&val))
-			wid = int(val)
+		if widPtr := C.cfDictLookup(dict, widKeyC); widPtr != nil {
+			wid = int(C.cfNumberToInt(C.CFNumberRef(widPtr)))
 		}
-		C.CFRelease(C.CFTypeRef(widKey))
 
 		windows = append(windows, darwinWindow{pid: pid, wid: wid, title: title, app: app})
 	}

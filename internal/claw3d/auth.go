@@ -15,11 +15,11 @@ import (
 // values. This is a stricter superset of internal/gateway/middleware.go's
 // allowedOrigins.
 var adapterAllowedOrigins = map[string]bool{
-	"http://localhost:5173":  true, // Vite dev
-	"http://127.0.0.1:5173":  true, // Vite dev (alt loopback name)
-	"http://localhost:8642":  true, // same-origin served bundle
-	"http://127.0.0.1:8642":  true,
-	"tauri://localhost":      true, // Tauri production shell
+	"http://localhost:5173": true, // Vite dev
+	"http://127.0.0.1:5173": true, // Vite dev (alt loopback name)
+	"http://localhost:8642": true, // same-origin served bundle
+	"http://127.0.0.1:8642": true,
+	"tauri://localhost":     true, // Tauri production shell
 }
 
 // sessionTTL is the lifetime of a session token cookie issued on
@@ -107,7 +107,14 @@ func (s *sessionStore) reapExpiredLocked() {
 // issue mints a new 128-bit token, records its expiry, and sets a
 // loopback-scoped HttpOnly cookie on the response. Crosses reapThreshold →
 // eagerly prune before insert.
-func (s *sessionStore) issue(w http.ResponseWriter) string {
+//
+// Secure is set from the incoming request's TLS state: when served over
+// HTTPS the cookie is marked Secure to prevent transmission in the clear;
+// when served over plain HTTP (loopback dev) it is not, because a Secure
+// cookie would silently fail to attach. A request-sniffing proxy setting
+// X-Forwarded-Proto=https would NOT pass through here — we rely on the
+// real TLS handshake state which cannot be forged.
+func (s *sessionStore) issue(w http.ResponseWriter, r *http.Request) string {
 	buf := make([]byte, 16)
 	_, _ = rand.Read(buf)
 	tok := hex.EncodeToString(buf)
@@ -118,14 +125,16 @@ func (s *sessionStore) issue(w http.ResponseWriter) string {
 	}
 	s.live[tok] = expires
 	s.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     "claw3d_sess",
 		Value:    tok,
 		Path:     "/office/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expires,
-	})
+	}
+	http.SetCookie(w, cookie)
 	return tok
 }
 

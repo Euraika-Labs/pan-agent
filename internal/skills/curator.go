@@ -377,8 +377,22 @@ func (m *Manager) ApplyCuratorIntent(meta ProposalMetadata, splitChildrenDir str
 	}
 }
 
-// splitActiveID parses "<category>/<name>" → (category, name).
+// splitActiveID is the package-internal alias for the exported SplitID.
+// Historical callers inside this package use this name; external callers
+// (internal/tools/*) use SplitID directly.
 func splitActiveID(id string) (category, name string, err error) {
+	return SplitID(id)
+}
+
+// SplitID parses "<category>/<name>" into its two components. The
+// canonical parser for skill IDs — used by splitAndResolveActiveID (this
+// package) and by the tool layer (internal/tools). Previously this logic
+// was reinvented three times (splitActiveID, splitSkillID, splitOnce)
+// with slightly different error strings; consolidated M3.
+func SplitID(id string) (category, name string, err error) {
+	if id == "" {
+		return "", "", fmt.Errorf("skill id is empty (want '<category>/<name>')")
+	}
 	parts := strings.SplitN(id, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("skill id must be '<category>/<name>', got %q", id)

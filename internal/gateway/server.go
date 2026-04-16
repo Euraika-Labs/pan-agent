@@ -103,6 +103,7 @@ func New(addr string, db *storage.DB, profile string) *Server {
 //   - chaos tests (M5-C2) to target the gateway for SIGKILL scenarios.
 //   - `pan-agent doctor --switch-engine` (M6-C1) to confirm an instance is
 //     running before POSTing to /v1/office/engine.
+//
 // The write is best-effort: a failure to write the PID file logs a warning
 // but does not block the listener. A crash later leaves a stale file which
 // doctor/chaos callers must validate (os.FindProcess + signal 0) anyway.

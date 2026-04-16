@@ -150,26 +150,11 @@ func (t SkillManagerTool) Execute(_ context.Context, params json.RawMessage) (*R
 	}
 }
 
-// splitSkillID parses "<category>/<name>" into its parts.
+// splitSkillID is a thin wrapper around skills.SplitID kept for call-site
+// readability at the tool layer. The single parser lives in the skills
+// package; this avoids the previous triplicate implementation (M3).
 func splitSkillID(id string) (category, name string, err error) {
-	if id == "" {
-		return "", "", fmt.Errorf("name is required (format '<category>/<name>')")
-	}
-	parts := splitOnce(id, '/')
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("name must be '<category>/<name>', got %q", id)
-	}
-	return parts[0], parts[1], nil
-}
-
-// splitOnce splits s at the first occurrence of sep.
-func splitOnce(s string, sep byte) []string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == sep {
-			return []string{s[:i], s[i+1:]}
-		}
-	}
-	return []string{s}
+	return skills.SplitID(id)
 }
 
 var _ Tool = SkillManagerTool{}

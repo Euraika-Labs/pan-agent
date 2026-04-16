@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"sync"
 )
 
 // Tool is the contract every agent tool must satisfy.
@@ -29,27 +30,61 @@ type Result struct {
 	Denied bool   `json:"denied,omitempty"` // true when approval was rejected
 }
 
-// registry holds all registered tools, keyed by Tool.Name().
-var registry = map[string]Tool{}
+// Registry holds a named set of tools. The package exposes a default
+// global Registry plus constructor helpers so integration tests can
+// stand up an isolated tool set per test (previously the package-global
+// map made it impossible to run two Server instances in one process).
+type Registry struct {
+	mu sync.RWMutex
+	m  map[string]Tool
+}
 
-// Register adds t to the global registry.
-// A second call with the same name overwrites the previous entry.
-func Register(t Tool) { registry[t.Name()] = t }
+// NewRegistry returns an empty Registry. For integration tests that want
+// to pin the exact tools available without touching the global default.
+func NewRegistry() *Registry {
+	return &Registry{m: make(map[string]Tool)}
+}
 
-// Get returns the tool registered under name and a boolean indicating whether
-// it was found.
-func Get(name string) (Tool, bool) {
-	t, ok := registry[name]
+// Register adds t to this registry. A second call with the same name
+// overwrites the previous entry (same semantics as the prior global).
+func (r *Registry) Register(t Tool) {
+	r.mu.Lock()
+	r.m[t.Name()] = t
+	r.mu.Unlock()
+}
+
+// Get returns the tool registered under name and a boolean indicating
+// whether it was found.
+func (r *Registry) Get(name string) (Tool, bool) {
+	r.mu.RLock()
+	t, ok := r.m[name]
+	r.mu.RUnlock()
 	return t, ok
 }
 
-// All returns a shallow copy of the registry map.
-// Callers may iterate over it without holding any lock; tool values are
-// immutable after registration.
-func All() map[string]Tool {
-	out := make(map[string]Tool, len(registry))
-	for k, v := range registry {
+// All returns a shallow copy of the registry map. Callers may iterate
+// without holding any lock; tool values are immutable after registration.
+func (r *Registry) All() map[string]Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]Tool, len(r.m))
+	for k, v := range r.m {
 		out[k] = v
 	}
 	return out
 }
+
+// Default is the process-wide registry every tool's init() writes into.
+// Package-level Register/Get/All delegate here for backward compatibility;
+// tests that need isolation can allocate a fresh Registry via NewRegistry
+// and pass it through their Server construction.
+var Default = NewRegistry()
+
+// Register adds t to the default (package-global) registry.
+func Register(t Tool) { Default.Register(t) }
+
+// Get returns the tool registered in the default registry.
+func Get(name string) (Tool, bool) { return Default.Get(name) }
+
+// All returns a shallow copy of the default registry's map.
+func All() map[string]Tool { return Default.All() }

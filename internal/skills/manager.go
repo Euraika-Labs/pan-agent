@@ -69,24 +69,27 @@ func (m *Manager) CreateProposal(name, category, description, content, sessionID
 	// Ensure SKILL.md starts with YAML frontmatter if missing.
 	content = EnsureFrontmatter(content, name, description)
 
-	// Build proposal metadata + directory.
+	// Guard-scan FIRST so blocked content never touches disk. Prior
+	// ordering (write then scan then RemoveAll) left a small window where
+	// the proposal directory existed on-disk with malicious content — a
+	// symlink/race vector that no longer exists.
+	scan := m.Guard.Scan(content)
+	if scan.Blocked {
+		meta := NewProposalMetadata(name, category, description, sessionID, source)
+		return meta, scan, fmt.Errorf("guard blocked proposal: %d finding(s)", len(scan.Findings))
+	}
+
+	// Build proposal metadata + directory only after the scan passes.
 	meta := NewProposalMetadata(name, category, description, sessionID, source)
 	proposalDir, err := resolveProposalDir(m.Profile, meta.ID)
 	if err != nil {
 		return meta, ReviewResult{}, err
 	}
 
-	// Atomic write.
+	// Atomic write of clean content.
 	skillMdPath := filepath.Join(proposalDir, "SKILL.md")
 	if err := atomicWrite(skillMdPath, []byte(content), 0o600); err != nil {
 		return meta, ReviewResult{}, err
-	}
-
-	// Guard scan; on block, roll back the directory.
-	scan := m.Guard.Scan(content)
-	if scan.Blocked {
-		_ = os.RemoveAll(proposalDir)
-		return meta, scan, fmt.Errorf("guard blocked proposal: %d finding(s)", len(scan.Findings))
 	}
 
 	if err := WriteMetadata(proposalDir, meta); err != nil {
@@ -98,7 +101,9 @@ func (m *Manager) CreateProposal(name, category, description, content, sessionID
 }
 
 // EditActiveSkill replaces the entire SKILL.md of an active skill, saving the
-// previous version to _history/. Runs the guard scanner; rolls back on block.
+// previous version to _history/. Runs the guard scanner BEFORE writing so
+// blocked content never hits the active file (prior ordering let concurrent
+// readers observe blocked content during the scan-then-rollback window).
 func (m *Manager) EditActiveSkill(category, name, newContent string) (ReviewResult, error) {
 	if len(newContent) > MaxSkillContentBytes {
 		return ReviewResult{}, fmt.Errorf("content exceeds %d bytes", MaxSkillContentBytes)
@@ -109,12 +114,20 @@ func (m *Manager) EditActiveSkill(category, name, newContent string) (ReviewResu
 	}
 	skillPath := filepath.Join(skillDir, "SKILL.md")
 
+	// Guard-scan first. If blocked, nothing touches disk and no history
+	// entry is created for a rejected edit.
+	scan := m.Guard.Scan(newContent)
+	if scan.Blocked {
+		return scan, fmt.Errorf("guard blocked edit: %d finding(s)", len(scan.Findings))
+	}
+
 	prevData, existed := snapshotFile(skillPath)
 	if !existed {
 		return ReviewResult{}, fmt.Errorf("skill %s/%s not found", category, name)
 	}
 
-	// Write history snapshot before mutation.
+	// Write history snapshot before mutation so an interrupted write is
+	// recoverable.
 	if err := snapshotToHistory(m.Profile, category, name, prevData); err != nil {
 		return ReviewResult{}, err
 	}
@@ -124,11 +137,6 @@ func (m *Manager) EditActiveSkill(category, name, newContent string) (ReviewResu
 		return ReviewResult{}, err
 	}
 
-	scan := m.Guard.Scan(newContent)
-	if scan.Blocked {
-		_ = restoreFile(skillPath, prevData, true, 0o600)
-		return scan, fmt.Errorf("guard blocked edit: %d finding(s)", len(scan.Findings))
-	}
 	return scan, nil
 }
 
@@ -155,7 +163,10 @@ func (m *Manager) DeleteActiveSkill(category, name, reason string) error {
 }
 
 // WriteSupportingFile writes a supporting file (reference/template/script/asset)
-// under the active skill directory. Validates path traversal and size.
+// under the active skill directory. Validates path traversal and size and
+// runs the content through the guard scanner — scripts/*.sh and other
+// supporting files are equally capable of carrying an exploit payload, so
+// they must be scanned, not just SKILL.md.
 func (m *Manager) WriteSupportingFile(category, name, relPath string, content []byte) error {
 	if len(content) > MaxSupportingBytes {
 		return fmt.Errorf("file exceeds %d bytes", MaxSupportingBytes)
@@ -173,6 +184,13 @@ func (m *Manager) WriteSupportingFile(category, name, relPath string, content []
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") ||
 		strings.HasPrefix(rel, string(filepath.Separator)) {
 		return fmt.Errorf("path escapes skill directory")
+	}
+	// Guard-scan the supporting file before it lands on disk. Binary-ish
+	// assets (images, zip) rarely hit the patterns, text content can.
+	if m.Guard != nil {
+		if scan := m.Guard.Scan(string(content)); scan.Blocked {
+			return fmt.Errorf("guard blocked supporting file %s: %d finding(s)", relPath, len(scan.Findings))
+		}
 	}
 	return atomicWrite(target, content, 0o600)
 }

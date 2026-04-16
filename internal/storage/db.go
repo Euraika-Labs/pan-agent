@@ -48,7 +48,89 @@ func Open(dbPath string) (*DB, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("storage.Open migrateOfficeContentHash: %w", err)
 	}
+	// M5 (0.4.2): messages_fts was historically declared `content=messages`
+	// but the code inserts rowid+content manually — the external-content
+	// contract requires triggers we never installed, so session-cascade
+	// deletes orphaned the FTS index. Detect the old shape and rebuild as
+	// a plain (contentless-style) FTS5 table.
+	if err := d.migrateMessagesFTS(); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("storage.Open migrateMessagesFTS: %w", err)
+	}
 	return d, nil
+}
+
+// migrateMessagesFTS drops the old `content=messages` FTS5 virtual table
+// (if present) and recreates it as a plain content-holding FTS5 table,
+// repopulating from messages. Idempotent: the probe checks the CREATE
+// statement, so re-running on an already-migrated DB is a no-op.
+func (d *DB) migrateMessagesFTS() error {
+	var createSQL string
+	err := d.db.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE type='table' AND name='messages_fts'`,
+	).Scan(&createSQL)
+	if err == sql.ErrNoRows {
+		return nil // table not yet created; base migration will handle it
+	}
+	if err != nil {
+		return fmt.Errorf("probe messages_fts: %w", err)
+	}
+	// Already migrated — no content= clause in the recorded CREATE.
+	if !containsCaseInsensitive(createSQL, "content=") {
+		return nil
+	}
+	// Rebuild.
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DROP TABLE messages_fts`); err != nil {
+		return fmt.Errorf("drop old fts: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE VIRTUAL TABLE messages_fts USING fts5(content)`); err != nil {
+		return fmt.Errorf("create new fts: %w", err)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO messages_fts (rowid, content) SELECT id, content FROM messages`,
+	); err != nil {
+		return fmt.Errorf("repopulate fts: %w", err)
+	}
+	return tx.Commit()
+}
+
+func containsCaseInsensitive(haystack, needle string) bool {
+	// Avoid an extra import of strings here — the needle and haystack are
+	// both SQL text. Do a simple bytewise case-fold scan.
+	if len(needle) == 0 {
+		return true
+	}
+	h := make([]byte, len(haystack))
+	for i := 0; i < len(haystack); i++ {
+		c := haystack[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		h[i] = c
+	}
+	n := make([]byte, len(needle))
+	for i := 0; i < len(needle); i++ {
+		c := needle[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		n[i] = c
+	}
+outer:
+	for i := 0; i+len(n) <= len(h); i++ {
+		for j := 0; j < len(n); j++ {
+			if h[i+j] != n[j] {
+				continue outer
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // migrateOfficeContentHash is the 0.4.0 M4 W2 schema migration that:
@@ -178,8 +260,12 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS messages_session_idx ON messages(session_id);
 
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
-    USING fts5(content, content=messages, content_rowid=id);
+-- messages_fts: plain content-holding FTS5. We previously declared this
+-- with content=messages + content_rowid=id (external-content) but the
+-- code never installed the required triggers, so cascade-deletes orphaned
+-- the index. M5 migration (migrateMessagesFTS) rebuilds existing DBs with
+-- this shape; new DBs start here directly.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content);
 
 CREATE TABLE IF NOT EXISTS skill_usage (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

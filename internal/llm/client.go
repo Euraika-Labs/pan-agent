@@ -8,9 +8,32 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
+
+// flushToolCalls emits accumulated tool calls in ascending-index order.
+// Go randomises map iteration, which made per-request tool-call sequence
+// nondeterministic and broke downstream assumptions (persisted assistant
+// messages carried tool_calls in whatever order Go's hash happened to pick).
+// Always sort the indices before flushing.
+func flushToolCalls(tcAcc map[int]*ToolCall, send func(StreamEvent) bool) bool {
+	if len(tcAcc) == 0 {
+		return true
+	}
+	keys := make([]int, 0, len(tcAcc))
+	for k := range tcAcc {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	for _, k := range keys {
+		if !send(StreamEvent{Type: "tool_call", ToolCall: tcAcc[k]}) {
+			return false
+		}
+	}
+	return true
+}
 
 // Client is an OpenAI-compatible streaming chat client.
 type Client struct {
@@ -168,10 +191,8 @@ func (c *Client) parseSSE(ctx context.Context, r io.Reader, ch chan<- StreamEven
 
 		if payload == "[DONE]" {
 			// Flush any accumulated tool calls before signalling done.
-			for _, tc := range tcAcc {
-				if !send(StreamEvent{Type: "tool_call", ToolCall: tc}) {
-					return
-				}
+			if !flushToolCalls(tcAcc, send) {
+				return
 			}
 			send(StreamEvent{Type: "done", SessionID: sessionID})
 			return
@@ -252,12 +273,10 @@ func (c *Client) parseSSE(ctx context.Context, r io.Reader, ch chan<- StreamEven
 				}
 			}
 
-			// Emit completed tool calls on finish
+			// Emit completed tool calls on finish, in ascending index order.
 			if choice.FinishReason != nil && *choice.FinishReason == "tool_calls" {
-				for _, tc := range tcAcc {
-					if !send(StreamEvent{Type: "tool_call", ToolCall: tc}) {
-						return
-					}
+				if !flushToolCalls(tcAcc, send) {
+					return
 				}
 				tcAcc = map[int]*ToolCall{}
 			}

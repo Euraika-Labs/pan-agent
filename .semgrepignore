@@ -1,0 +1,52 @@
+# Semgrep ignore patterns for pan-agent.
+#
+# Paths listed here are excluded from every semgrep scan (CI, local,
+# PostToolUse hook). Only exclude generated/third-party code here —
+# first-party source should either be clean or carry an inline
+# `// nosemgrep: <rule-id>` suppression with a written justification.
+
+# Embedded Claw3D Next.js bundle — minified, committed artifact from the
+# Claw3D frontend build. Scanning generated JS produces a large volume of
+# flags (prototype pollution, non-literal regexp, wildcard postMessage)
+# that are inherent to bundled/compiled output and unactionable here.
+internal/claw3d/bundle/
+
+# Test files — exercise real binaries and simulate HTTP servers by design.
+# dangerous-exec-command and no-direct-write-to-responsewriter findings in
+# test code are appropriate: exec'ing the binary under test IS the test,
+# and simulating an SSE server requires writing raw bytes to a fake
+# ResponseWriter.
+**/*_test.go
+
+# Platform-specific CGO wrappers for OS APIs. Using unsafe.Pointer to hand
+# Go memory to CoreGraphics / User32 / CoreFoundation is the documented
+# idiomatic cgo pattern; the alternative is to not use those APIs at all.
+# Every use here is local-scope and short-lived (no stored pointers, no
+# finalizers) — inspected during 0.4.1 security audit.
+internal/tools/keyboard_darwin.go
+internal/tools/keyboard_windows.go
+internal/tools/mouse_windows.go
+internal/tools/window_manager_darwin.go
+internal/tools/window_manager_windows.go
+internal/claw3d/process_windows.go
+
+# Agent tools whose purpose IS command execution. These are gated by the
+# approval.Classify pipeline (internal/approval/classify.go) before they
+# run; the CWE-78 / dangerous-exec-command advice "avoid dynamic commands"
+# does not apply to a tool whose function is literally to run the command
+# the LLM proposed. Tool output never flows to HTML rendering.
+internal/tools/code_execution.go
+internal/tools/terminal.go
+
+# Go build cache + vendored deps (if ever added).
+.gocache/
+vendor/
+
+# Frontend build outputs.
+desktop/dist/
+desktop/src-tauri/target/
+
+# Backup files and OS cruft.
+*.orig
+*.bak
+.DS_Store

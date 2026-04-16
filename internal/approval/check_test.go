@@ -37,10 +37,13 @@ func TestCheckCatastrophicMimikatz(t *testing.T) {
 	}
 }
 
-func TestCheckDangerousRmRF(t *testing.T) {
+func TestCheckCatastrophicRmRFRoot(t *testing.T) {
+	// M1 promotion: `rm -rf /` was Dangerous (single-click) under the
+	// pre-0.4.1 policy. It is now Catastrophic (typed confirmation)
+	// because the single-click UX habituates users to click-through.
 	result := Check("rm -rf /")
-	if result.Level != Dangerous {
-		t.Errorf("rm -rf /: level = %d, want %d (Dangerous)", result.Level, Dangerous)
+	if result.Level != Catastrophic {
+		t.Errorf("rm -rf /: level = %d, want %d (Catastrophic)", result.Level, Catastrophic)
 	}
 }
 

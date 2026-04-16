@@ -1,0 +1,75 @@
+# openapi-exempt.txt — routes deliberately NOT in docs/openapi.yaml yet.
+#
+# Format: one absolute path per line. `#` starts a comment. Whitespace is
+# stripped. Path parameters use the same `{id}` syntax as routes.go.
+#
+# Checked by scripts/verify-api.sh. When you add a new route, either
+# document it in docs/openapi.yaml or add it here with a one-line
+# justification so the contract check stays green.
+#
+# 0.4.2 baseline — H12 scaffold. These 44 routes existed before the
+# unified error envelope + OpenAPI scaffold landed; they will migrate
+# into docs/openapi.yaml incrementally. Listing them explicitly means a
+# new 45th route WON'T slip in undocumented.
+
+# --- config / profiles / doctor / update
+/v1/config/doctor
+/v1/config/profiles
+/v1/config/profiles/{name}
+/v1/config/update
+
+# --- cron (scheduler ships in 0.4.2; full OpenAPI schema is a follow-up)
+/v1/cron
+/v1/cron/{id}
+
+# --- bot gateways (Telegram/Discord/Slack bridges)
+/v1/health/gateway/start
+/v1/health/gateway/stop
+
+# --- memory + persona (user-visible text files exposed via HTTP)
+/v1/memory
+/v1/memory/{index}
+/v1/persona
+/v1/persona/reset
+
+# --- models (local LLM model catalog)
+/v1/models
+/v1/models/sync
+/v1/models/{id}
+
+# --- office / claw3d (legacy name; endpoints live under /v1/office/*)
+/v1/office/config
+/v1/office/csp-report
+/v1/office/engine
+/v1/office/fallback-detected
+/v1/office/logs
+/v1/office/migration/run
+/v1/office/migration/status
+/v1/office/setup
+/v1/office/setup/progress
+/v1/office/start
+/v1/office/status
+/v1/office/stop
+
+# --- sessions/{id} (session detail; listing is documented)
+/v1/sessions/{id}
+
+# --- skills: install / catalog / curator / reviewer / history / proposals
+/v1/skills
+/v1/skills/bundled
+/v1/skills/curator/run
+/v1/skills/history/{category}/{name}
+/v1/skills/history/{category}/{name}/rollback
+/v1/skills/install
+/v1/skills/proposals
+/v1/skills/proposals/{id}
+/v1/skills/proposals/{id}/approve
+/v1/skills/proposals/{id}/reject
+/v1/skills/reviewer/run
+/v1/skills/uninstall
+/v1/skills/usage/{category}/{name}
+/v1/skills/usage/{category}/{name}/stats
+
+# --- tools registry (list + per-tool toggle)
+/v1/tools
+/v1/tools/{key}

@@ -220,26 +220,41 @@ func (m *Manager) MergeProposals(ids []string, consolidatedContent, reviewerNote
 	}
 	_ = reviewerNote // currently unused — included in PromoteProposal note
 
-	// Park each loser under _merged/<id>/ for audit.
+	// Park each loser under _merged/<id>/ for audit. Any failure in this
+	// loop leaves the previously-renamed losers in _merged/ (we cannot un-
+	// promote the winner once it's active) but we MUST continue so that
+	// earlier losers aren't orphaned in `_proposed/`. Errors are collected
+	// and returned together; per-loser metadata write errors no longer
+	// silently drop.
 	mergeBase := filepath.Clean(filepath.Join(paths.ProfileSkillsDir(m.Profile), "_merged"))
+	var errs []string
 	for _, l := range losers {
 		dst := filepath.Clean(filepath.Join(mergeBase, l.Metadata.ID))
 		rel, relErr := filepath.Rel(mergeBase, dst)
 		if relErr != nil || rel == "." || strings.HasPrefix(rel, "..") ||
 			strings.HasPrefix(rel, string(filepath.Separator)) {
-			return promoted, fmt.Errorf("merged path resolves outside _merged dir")
+			errs = append(errs, fmt.Sprintf("%s: merged path resolves outside _merged dir", l.Metadata.ID))
+			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-			return promoted, fmt.Errorf("merged mkdir: %w", err)
+			errs = append(errs, fmt.Sprintf("%s: mkdir: %v", l.Metadata.ID, err))
+			continue
 		}
 		if err := os.Rename(l.Dir, dst); err != nil {
-			return promoted, fmt.Errorf("merged rename: %w", err)
+			errs = append(errs, fmt.Sprintf("%s: rename: %v", l.Metadata.ID, err))
+			continue
 		}
 		l.Metadata.Status = StatusMerged
 		l.Metadata.ParentIDs = []string{promoted.ID}
-		_ = WriteMetadata(dst, l.Metadata)
+		if err := WriteMetadata(dst, l.Metadata); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: metadata write: %v", l.Metadata.ID, err))
+			// fall through: the move succeeded, only metadata failed
+		}
 	}
 
+	if len(errs) > 0 {
+		return promoted, fmt.Errorf("merge partial failure: %s", strings.Join(errs, "; "))
+	}
 	return promoted, nil
 }
 

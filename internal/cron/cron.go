@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -208,14 +209,44 @@ func readJobs() ([]Job, error) {
 	return jobs, nil
 }
 
-// writeJobs persists jobs as a plain JSON array.
+// writeJobs persists jobs as a plain JSON array using a temp-file + rename
+// pattern so a crash mid-write cannot leave a truncated jobs file (the
+// previous os.WriteFile truncates-then-writes and lost every job on any
+// crash during the ~ms write window).
 func writeJobs(jobs []Job) error {
 	data, err := json.MarshalIndent(jobs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cron: marshal jobs: %w", err)
 	}
-	if err := os.WriteFile(filePath(), data, 0o600); err != nil {
-		return fmt.Errorf("cron: write jobs file: %w", err)
+	finalPath := filePath()
+	dir := filepath.Dir(finalPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("cron: mkdir: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "jobs.*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("cron: create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	// Best-effort cleanup on any failure path.
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("cron: write temp: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("cron: chmod temp: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("cron: fsync temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("cron: close temp: %w", err)
+	}
+	if err := os.Rename(tmpName, finalPath); err != nil {
+		return fmt.Errorf("cron: rename jobs file: %w", err)
 	}
 	return nil
 }

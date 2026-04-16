@@ -142,19 +142,30 @@ func buildCommand(ctx context.Context, lang, code, workDir string) (*exec.Cmd, e
 }
 
 // shellCommand returns a shell exec.Cmd appropriate for the current OS.
+// On Windows we intentionally skip exec.LookPath("bash"/"pwsh") — user-
+// writable PATH entries (%USERPROFILE%\bin, %APPDATA%\npm, CWD) would let
+// an attacker shadow the system interpreter. Fall straight through to
+// cmd.exe resolved from %SystemRoot%\System32, which is TrustedInstaller-
+// owned on a default install.
+//
+// code is LLM-supplied and must reach the shell verbatim — that is the
+// explicit purpose of the code_execution tool. The call site is gated
+// upstream by approval.Classify (see internal/approval/classify.go and
+// internal/gateway/chat.go:executeToolCall), which requires user
+// approval before any shell invocation. gosec's taint analysis cannot
+// follow the approval round-trip through the SSE stream, so the G204
+// findings on these call sites are documented false positives.
 func shellCommand(ctx context.Context, code string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
-		// On Windows prefer PowerShell Core (pwsh) or fall back to cmd.exe.
-		if path, err := exec.LookPath("bash"); err == nil {
-			// Git Bash / WSL bash available.
-			return exec.CommandContext(ctx, path, "-c", code)
+		sysRoot := os.Getenv("SystemRoot")
+		if sysRoot == "" {
+			sysRoot = `C:\Windows`
 		}
-		if path, err := exec.LookPath("pwsh"); err == nil {
-			return exec.CommandContext(ctx, path, "-Command", code)
-		}
-		return exec.CommandContext(ctx, "cmd", "/C", code)
+		// #nosec G204 -- code is agent-supplied by design; gated upstream by approval.Classify.
+		return exec.CommandContext(ctx, sysRoot+`\System32\cmd.exe`, "/C", code)
 	}
 	// POSIX systems: use /bin/sh for portability.
+	// #nosec G204 -- code is agent-supplied by design; gated upstream by approval.Classify.
 	return exec.CommandContext(ctx, "/bin/sh", "-c", code)
 }
 

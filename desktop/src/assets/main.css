@@ -687,6 +687,7 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
 
   border-radius: 16px;
 }
@@ -696,8 +697,29 @@ body {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 20px 10px;
-  margin-top: 25px;
+  padding: 12px 10px;
+  margin-top: 8px;
+  flex-shrink: 0;
+  /* Box height grows with the image's intrinsic aspect ratio (square). At
+   * 96px high the full crest + "PAN-AGENT" wordmark are both visible. */
+  min-height: 96px;
+}
+
+/* Tailwind 4's preflight sets img { height: auto }, which overrides the
+ * <img height={30}> attribute on the brand logo. Without an explicit size
+ * the image stretches to the full 230px sidebar width and eats ~200px of
+ * vertical space; with a clamp on width tied to vh the WKWebView clipped
+ * the top half of the crest at moderate window heights (user reported
+ * seeing the "PAN-AGENT" wordmark but no crest above it).
+ *
+ * Pin to a fixed 72 px tall, width auto via the 1:1 intrinsic aspect.
+ * object-fit: contain prevents any cropping if a future asset has a
+ * non-square aspect. */
+.sidebar-brand img {
+  height: 72px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
 }
 
 .sidebar-brand-icon {
@@ -720,7 +742,9 @@ body {
 }
 
 .sidebar-nav {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 0 8px;
   display: flex;
   flex-direction: column;
@@ -793,6 +817,54 @@ body {
 
 .sidebar-update-btn:hover {
   background: var(--accent-hover);
+}
+
+/* ---------------------------------------------------------------------------
+ * Narrow-viewport collapse: icon-only sidebar.
+ *
+ * Why: the base sidebar is 230px wide with a flex-shrink:0 rail. On windows
+ * narrower than ~640px it was eating ~48% of the viewport (confirmed at 480
+ * width during the 0.4.1 GUI audit). This media query collapses the labels
+ * and footer text, keeping only icons — the rail becomes 64px wide, which
+ * gives the main content area room to breathe down to ~400px total width.
+ * Above 640px the full-label layout is unchanged.
+ * ------------------------------------------------------------------------ */
+@media (max-width: 640px) {
+  .sidebar {
+    width: 64px;
+  }
+  .sidebar-brand {
+    padding: 16px 0 8px;
+    margin-top: 8px;
+  }
+  .sidebar-brand-name,
+  .sidebar-footer-text {
+    display: none;
+  }
+  .sidebar-brand-icon {
+    width: 28px;
+    height: 28px;
+  }
+  .sidebar-nav {
+    padding: 0 6px;
+  }
+  .sidebar-nav-item {
+    justify-content: center;
+    padding: 10px 0;
+    gap: 0;
+    font-size: 0; /* Hide the label; icons (svg) stay visible. */
+  }
+  .sidebar-nav-item svg {
+    font-size: 1rem; /* Reset so icons render at normal size. */
+  }
+  .sidebar-update-btn {
+    justify-content: center;
+    padding: 6px 4px;
+    font-size: 0;
+  }
+  .sidebar-update-btn svg {
+    font-size: 1rem;
+  }
 }
 
 /* Theme Switcher */
