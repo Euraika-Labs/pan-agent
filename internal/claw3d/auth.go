@@ -130,16 +130,9 @@ func (s *sessionStore) issue(w http.ResponseWriter, r *http.Request) string {
 		Value:    tok,
 		Path:     "/office/",
 		HttpOnly: true,
-		Secure:   true, // default; may be downgraded for plain-HTTP loopback below
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expires,
-	}
-	// Plain-HTTP loopback (127.0.0.1 / localhost without TLS) must NOT
-	// mark the cookie Secure — the browser would refuse to attach it on
-	// subsequent requests and the session would silently never authenticate.
-	// Over real TLS (r.TLS != nil) we keep Secure=true.
-	if r == nil || r.TLS == nil {
-		cookie.Secure = false
 	}
 	http.SetCookie(w, cookie)
 	return tok
