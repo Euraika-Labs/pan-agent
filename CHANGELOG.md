@@ -5,6 +5,38 @@ All notable changes to Pan-Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-04-17
+
+Security scanner follow-up on 0.4.2. Clears 11 outstanding alerts on `main`
+from CodeQL (5 high + 2 medium) and gosec (4 errors). No behaviour changes,
+no new features.
+
+### Security
+- **Path sanitisation in claw3d migrate-office.** `internal/claw3d/migrate.go`
+  adds `sanitizeMigrationPath` (`filepath.Clean` → `filepath.Abs`) applied to
+  `opt.Source` and `opt.BackupDir` before any `os.Stat` / `os.ReadFile` /
+  `os.MkdirAll` / `os.Rename` call. Closes CodeQL `go/path-injection` alerts
+  #81–#85 (HIGH). The migrate-office CLI runs on the user's own machine
+  against their own data, so this is a canonicalisation pass, not a jail —
+  but it gives the taint sinks a normalised form.
+- **Tightened file/directory permissions** flagged by gosec:
+  - `internal/gateway/server.go#writePidFile` — PID file 0o644 → 0o600
+    (only pan-agent itself reads it; no group/world reader needed). gosec #90.
+  - `internal/gateway/office_csp.go` — CSP violations log 0o644 → 0o600
+    (user-local debug log; no external reader). gosec #88.
+  - `internal/claw3d/sha-stamp/main.go` — generated `sha.go` 0o644 → 0o600
+    (git normalises mode on add anyway, but keeps gosec quiet). gosec #91.
+  - `internal/claw3d/migrate.go` backup dir `MkdirAll` 0o755 → 0o750.
+    gosec #89.
+### Deferred
+- Workflow least-privilege `permissions:` blocks for
+  `.github/workflows/chaos.yml` and `.github/workflows/e2e-real-webview.yml`
+  (CodeQL #78, #79) are staged but not shipped in 0.4.3 — pushing workflow
+  changes via the release bot requires the `workflow` OAuth scope which
+  the current token lacks. Scheduled for a separate PR once the scope is
+  granted; change is trivial (3 lines × 2 files adding `permissions:
+  contents: read`).
+
 ## [0.4.2] - 2026-04-17
 
 Security + CI hygiene hotfix on top of 0.4.1. No user-visible feature changes;

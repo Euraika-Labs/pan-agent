@@ -88,7 +88,7 @@ const BundleSHA256Generated = %q
 const BundleFileCount = %d
 `, sum, sum, len(files))
 
-	if err := os.WriteFile(outFile, []byte(out), 0o644); err != nil {
+	if err := os.WriteFile(outFile, []byte(out), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "sha-stamp: write:", err)
 		os.Exit(1)
 	}

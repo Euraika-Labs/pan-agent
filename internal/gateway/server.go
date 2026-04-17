@@ -119,11 +119,14 @@ func (s *Server) Start() error {
 	return s.httpServer.Serve(ln)
 }
 
-// writePidFile serializes os.Getpid() to paths.PidFile(). Mode 0o644 so the
-// same user can read it back; we do not try to clean it up on shutdown
-// because the process-watch + signal-0 probe handles stale files correctly.
+// writePidFile serializes os.Getpid() to paths.PidFile(). Mode 0o600 —
+// the PID file is only consumed by pan-agent itself (stale-file probe via
+// signal-0) and by the sidecar-parent watcher, both running as the same
+// user. No group/world reader needs it. We do not try to clean it up on
+// shutdown because the process-watch + signal-0 probe handles stale files
+// correctly.
 func writePidFile() error {
-	return os.WriteFile(paths.PidFile(), []byte(strconv.Itoa(os.Getpid())), 0o644)
+	return os.WriteFile(paths.PidFile(), []byte(strconv.Itoa(os.Getpid())), 0o600)
 }
 
 // Stop gracefully shuts down the server. It waits for in-flight requests to
