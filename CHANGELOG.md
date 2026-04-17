@@ -5,6 +5,38 @@ All notable changes to Pan-Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-04-17
+
+Security + CI hygiene hotfix on top of 0.4.1. No user-visible feature changes;
+the Go backend version variable also catches up from 0.4.0 (which was never
+bumped when 0.4.1 shipped the desktop bits).
+
+### Security
+- **Approval classifier wired into code-execution path.** Level-1 / Level-2
+  patterns (`approval.Classify`) now gate `internal/tools/code_execution.go`
+  `shellCommand` branches via the SSE `approval_required` round-trip, closing
+  the gap where LLM-supplied shell strings reached `exec.Command` without
+  passing through the approval UI. `#nosec G204` with rationale added at the
+  two call sites (gosec's taint analysis can't follow the approval hop).
+- **Skill guard hardened.** 30+ regex patterns across 6 categories (exec, fs,
+  net, creds, obfuscation, prompt_injection); proposals with `severity=block`
+  findings are rejected before touching disk.
+- **42 review findings addressed** across the PR #9 security review, plus a
+  CodeQL finding (missing `Secure` attribute on the session cookie).
+
+### Fixed
+- **Go backend version string.** `internal/version.Version` was still `0.4.0`
+  in 0.4.1 (desktop shipped 0.4.1 in `package.json` / `Cargo.toml` /
+  `tauri.conf.json`, but `pan-agent version` reported 0.4.0). Now 0.4.2
+  everywhere.
+- **CI Lint green.** golangci-lint + staticcheck: deleted ~65 LOC of
+  scaffolded-but-unwired code in `internal/claw3d/` (`presenceCoalescer`,
+  unused `clientCount`), passed `context.TODO()` into `dispatch` in
+  `adapter_test.go`, removed now-unused `restoreFile` helper.
+- **Rustfmt green.** `cargo fmt --all --check` now passes on
+  `desktop/src-tauri/src/main.rs` (sidecar spawn chain + `eprintln!` blocks
+  were drifting against rustfmt since the 0.4.1 sidecar wiring landed).
+
 ## [0.4.1] - 2026-04-16
 
 Hotfix for two ship-blocking regressions in 0.4.0, both in the "works-only-if-

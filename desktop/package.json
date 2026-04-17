@@ -1,6 +1,6 @@
 {
   "name": "pan-desktop",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Pan Desktop — Tauri desktop app for Pan-Agent",
   "productName": "Pan Desktop",
   "author": "Euraika Labs",
