@@ -11,6 +11,12 @@ on:
   schedule:
     - cron: '0 5 * * 1'  # Monday 05:00 UTC, 1h after vendor-sync cron
 
+# Least-privilege default token: checkout needs contents:read, artifact
+# upload uses the independent ACTIONS_RUNTIME_TOKEN. No write scopes required.
+# Closes CodeQL actions/missing-workflow-permissions #78.
+permissions:
+  contents: read
+
 jobs:
   chaos:
     strategy:

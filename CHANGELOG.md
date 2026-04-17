@@ -5,6 +5,24 @@ All notable changes to Pan-Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-04-17
+
+Completes the 0.4.3 security-scanner pass. No runtime behaviour change —
+ships only the two workflow-permission blocks that were deferred from 0.4.3
+because the release bot token lacked the `workflow` OAuth scope.
+
+### Security
+- **Workflow least-privilege `permissions:` blocks** added to
+  `.github/workflows/chaos.yml` and `.github/workflows/e2e-real-webview.yml`:
+  ```yaml
+  permissions:
+    contents: read
+  ```
+  `contents: read` is the minimum needed for `actions/checkout@v4`; artifact
+  upload uses the independent `ACTIONS_RUNTIME_TOKEN` so no write scopes are
+  required. Closes CodeQL `actions/missing-workflow-permissions` #78 and
+  #79 (MEDIUM).
+
 ## [0.4.3] - 2026-04-17
 
 Security scanner follow-up on 0.4.2. Clears 11 outstanding alerts on `main`
