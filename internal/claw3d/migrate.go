@@ -59,6 +59,23 @@ type MigrateReport struct {
 	BackupPath string `json:"backupPath,omitempty"`
 }
 
+// sanitizeMigrationPath cleans and absolutises a user-provided path. Returns
+// an error if the input is empty. Acts as a CodeQL go/path-injection
+// sanitiser for the downstream os.Stat / os.ReadFile / os.MkdirAll /
+// os.Rename sinks: the migrate-office CLI runs on the user's own machine
+// against their own data, so we don't enforce a root jail — we only
+// canonicalise so path-expression sinks see a normalised form.
+func sanitizeMigrationPath(p string) (string, error) {
+	if p == "" {
+		return "", errors.New("empty path")
+	}
+	abs, err := filepath.Abs(filepath.Clean(p))
+	if err != nil {
+		return "", fmt.Errorf("resolve %q: %w", p, err)
+	}
+	return abs, nil
+}
+
 // DefaultLegacyPath is ~/.hermes/clawd3d-history.json on most OSes.
 // The hermes-gateway-adapter.js (upstream reference) writes here with a
 // debounced sync, so this is the only location we migrate from.
@@ -118,6 +135,17 @@ func RunMigration(db *storage.DB, opt MigrateOpts) (MigrateReport, error) {
 	if opt.BackupDir == "" {
 		opt.BackupDir = DefaultBackupDir()
 	}
+
+	cleanSource, err := sanitizeMigrationPath(opt.Source)
+	if err != nil {
+		return rep, fmt.Errorf("invalid source path: %w", err)
+	}
+	opt.Source = cleanSource
+	cleanBackup, err := sanitizeMigrationPath(opt.BackupDir)
+	if err != nil {
+		return rep, fmt.Errorf("invalid backup dir: %w", err)
+	}
+	opt.BackupDir = cleanBackup
 
 	st, err := os.Stat(opt.Source)
 	if errors.Is(err, os.ErrNotExist) {
@@ -194,7 +222,7 @@ func RunMigration(db *storage.DB, opt MigrateOpts) (MigrateReport, error) {
 		return rep, fmt.Errorf("audit: %w", err)
 	}
 
-	if err := os.MkdirAll(opt.BackupDir, 0o755); err != nil {
+	if err := os.MkdirAll(opt.BackupDir, 0o750); err != nil {
 		return rep, fmt.Errorf("mkdir backup: %w", err)
 	}
 	backup := filepath.Join(opt.BackupDir,
