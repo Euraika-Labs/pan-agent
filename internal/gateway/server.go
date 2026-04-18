@@ -19,6 +19,7 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/paths"
+	"github.com/euraika-labs/pan-agent/internal/recovery"
 	"github.com/euraika-labs/pan-agent/internal/storage"
 )
 
@@ -48,6 +49,10 @@ type Server struct {
 	gatewayMu      sync.RWMutex
 	gatewayRunning bool
 	botCancels     map[string]context.CancelFunc // platform → cancel
+
+	// recoveryOnce lazily initialises recoveryH on first request.
+	recoveryOnce sync.Once
+	recoveryH    *recovery.Handler
 }
 
 // getLLMClient returns the current LLM client under a read lock.
