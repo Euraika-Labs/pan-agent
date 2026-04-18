@@ -4,12 +4,14 @@ go 1.25.7
 
 require (
 	github.com/bwmarrin/discordgo v0.29.0
+	github.com/danieljoos/wincred v1.2.3
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jezek/xgb v1.3.0
 	github.com/kbinani/screenshot v0.0.0-20230812210009-b87d31814237
 	github.com/slack-go/slack v0.22.0
+	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.42.0
 	golang.org/x/text v0.32.0
 	modernc.org/sqlite v1.48.2
@@ -18,6 +20,7 @@ require (
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gen2brain/shm v0.0.0-20230802011745-f2460f5984f7 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
