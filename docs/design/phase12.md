@@ -26,10 +26,11 @@ Phase 12 turns pan-agent from "can control a PC" into "can be trusted to control
     - **Windows**: `github.com/danieljoos/wincred` (MIT, pure Go via DPAPI syscalls — no CGo)
     - **macOS**: shell-out to `security` CLI (ships with macOS, no CGo, no C-library linking)
     - **Linux**: `github.com/godbus/dbus/v5` against Secret Service (pure Go, no CGo)
-  - Launch Chromium with `--use-encryption-for-profile-data`
+  - Chromium automatically uses the OS keyring (Safe Storage) when available; fallback to a hardcoded key is automatic and silent.
   - **Verify at startup** that Chromium profile encryption is backed by the OS keyring, NOT Chromium's hardcoded Safe Storage fallback (R1). Fail-closed with a Setup banner in desktop sessions; log WARN + degrade in CI/headless mode
   - Launch flags: `--disable-extensions --disable-background-networking --disable-component-update` (R2). Opt-in path documented for extension-dependent workflows
-  - Monitor `SingletonLock` to refuse concurrent profile hijacking
+  - Delete rod's default `--password-store=basic` flag via `launcher.Delete("password-store")` before launch. Without this, Chromium silently bypasses Safe Storage on all platforms regardless of keyring availability (rod issue #177). Verified against rod launcher source by stage-1 research.
+  - Stale SingletonLock cleanup: on launcher startup, detect a `SingletonLock` file in `UserDataDir`. Before deletion, probe the SingletonSocket port to confirm no live Chromium is using the profile. Only then remove the lock. Absent this, a crashed pan-agent renders the profile unusable until manual cleanup. rod has no built-in helper — implement in `internal/tools/browser_common.go`.
 - `internal/storage/` — add `token_budget_used`, `token_budget_cap`, `cost_used_usd`, `cost_cap_usd` columns (to new `task_budgets` table when WS#4 lands; to `sessions` table meanwhile)
 - `internal/gateway/chat.go` — enforce caps in the SSE tool-call loop. Two-stage UX: emit `budget.warning` at **80% consumption** (amber banner, non-blocking) and at 100% transition to `paused` status, preserve state, emit `budget.exceeded`, require user resume/raise-cap/cancel. Terminate semantics removed — tasks are paused, not killed (Devin pause-not-terminate pattern).
 - `desktop/src/screens/` — show per-session cost inline as a persistent pill (`cost_used_usd / cost_cap_usd`, dollar amounts, not tokens). Amber banner at 80%, red blocking state at 100% with `[Increase limit] [End session]` CTAs.
@@ -111,8 +112,8 @@ CREATE INDEX idx_action_receipts_task_created ON action_receipts(task_id, create
 
 **SQLite runtime requirements**:
 - `PRAGMA journal_mode=WAL` mandatory (2MB screenshot writes during UI reads produce `SQLITE_BUSY` without WAL)
-- Main writer goroutine for receipts/events, **separate lightweight writer for heartbeats** (C3: prevents reaper races when main writer is busy)
-- `SetMaxOpenConns(1)` for the main writer, prepared statements, batched inserts per tool step
+- C3 implementation uses two `*sql.DB` instances against the same WAL-mode file: `storage.DB.mainWriter` (`SetMaxOpenConns(1)`) for tool-event writes, and `storage.DB.heartbeatWriter` (`SetMaxOpenConns(1)`) for heartbeat updates. WAL serializes writers internally. A single-pool design cannot satisfy both requirements — writers would contend for one connection and a long main transaction would starve heartbeats past the 60s stale threshold.
+- `SetMaxOpenConns(1)` for each writer pool independently, prepared statements, batched inserts per tool step
 - No per-field indexes on hot-path columns; index asynchronously on `(task_id, created_at)` only
 
 **Desktop UI — two-lane layout** (D2): the History screen splits receipts into two swim-lanes:

@@ -56,8 +56,8 @@ hardcoded fallback is used.
 
 #### Option 3 — Empirical launch with stderr/DBus signal inspection
 
-Run Chromium with `--use-encryption-for-profile-data` once at first run,
-parse stderr or DBus signals for a fallback indicator string.
+Run Chromium once at first run and parse stderr or DBus signals for a
+fallback indicator string.
 
 - **Detects**: the actual runtime behaviour Chromium takes.
 - **Fails on**: requires full Chromium download + launch at first-run
@@ -70,11 +70,10 @@ parse stderr or DBus signals for a fallback indicator string.
 
 #### Option 4 — Platform-specific keyring daemon responsiveness probe BEFORE Chromium launch — **CHOSEN**
 
-Before launching Chromium with `--use-encryption-for-profile-data`, verify
-the OS keyring is responsive by performing a tiny round-trip to it. If the
-daemon answers, Chromium's `--use-encryption-for-profile-data` will land on
-the keyring-backed path; if it does not answer, Chromium falls back. We
-own the probe so we own the signal.
+Chromium automatically uses the OS keyring when available, falling back
+silently to a hardcoded key when not. We probe the same daemon Chromium
+will call; if the probe succeeds, Chromium's automatic call will also
+succeed. We own the probe so we own the signal.
 
 The probe uses the `internal/secret/` package we already need for the
 browser-profile master key — it is the same operation we were going to
@@ -97,12 +96,14 @@ perform anyway, reused as the verification signal.
 ### Exact failure mode detected
 
 "The OS keyring daemon is not servicing requests at the moment pan-agent is
-about to launch Chromium with `--use-encryption-for-profile-data`." This
-is exactly the condition that causes Chromium to fall back to its
-hardcoded Safe Storage key. The probe races with Chromium launch (an
-attacker could kill the daemon between probe and launch), but the attack
-model Phase 12 defends against is "sloppy environment" (CI, headless,
-fresh VM) not "active tampering during setup" — the latter is Phase 13.
+about to launch Chromium." Chromium automatically uses the OS keyring when
+available and falls back silently to its hardcoded Safe Storage key when
+not. The probe is identical to the call Chromium itself makes microseconds
+later — if the probe succeeds, Chromium's automatic call will also succeed.
+The probe races with Chromium launch (an attacker could kill the daemon
+between probe and launch), but the attack model Phase 12 defends against
+is "sloppy environment" (CI, headless, fresh VM) not "active tampering
+during setup" — the latter is Phase 13.
 
 ### False positives considered
 
@@ -686,10 +687,15 @@ func (r *Reaper) Stop()
 
 ### Concurrency contract (C3)
 
-- Runs on its own goroutine; writes only through the dedicated
-  `storage.DB.heartbeatWriter()` channel (WS#4 adds this).
-- Does NOT share the main writer queue — a stuck main writer cannot
-  starve the reaper.
+- Runs on its own goroutine; writes only through `storage.DB.heartbeatWriter`,
+  which is a SEPARATE `*sql.DB` instance opened against the same WAL-mode
+  file (WS#4 introduces this second instance). It is not a channel.
+- A single `*sql.DB` with `SetMaxOpenConns(1)` cannot serve both the main
+  writer and the heartbeat writer — they would contend for the one connection
+  and a long main-writer transaction would starve heartbeats past the 60s
+  stale threshold. See spec C3.
+- Does NOT share the main writer pool — a stuck main writer cannot starve
+  the reaper.
 - Uses `time.Now()` monotonic clock for in-process timing; wall-clock
   only for the persisted `last_heartbeat_at` value.
 

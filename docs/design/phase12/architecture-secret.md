@@ -157,21 +157,20 @@ func deletePlatform(key string) error
 
 - Target name = `serviceName + ":" + key` (e.g. `pan-agent:browser-profile-key`)
   so the Windows Credential Manager UI groups pan-agent entries together.
-- `wincred.NewGenericCredential` + `cred.Write()` for Set. `cred.Persist =
-  wincred.PersistLocalMachine` — NO; use `PersistLocalComputer` is wrong, use
-  `PersistLocalMachine` is also wrong for a per-user agent. Coder picks
-  `wincred.PersistLocalMachine`-equivalent user-scope: the default
-  `PersistLocalComputer` stores per-machine which persists across user
-  accounts. Use `PersistLocalMachine` is incorrect; correct choice is
-  `wincred.PersistLocalMachine` — STOP. The actual correct constant is
-  `wincred.PersistLocalMachine` vs `PersistLocalComputer` vs
-  `PersistSession`. Coder: pick `PersistLocalMachine` if the design
-  constraint is "survives reboot, user-specific". Validate against wincred
-  godoc before committing.
+- `wincred.NewGenericCredential(target)` + `cred.Write()` for Set. Leave
+  `cred.Persist` at its default (`wincred.PersistLocalMachine`) — user-scoped
+  via DPAPI (tied to user SID) and survives reboot. `wincred.PersistEnterprise`
+  would permit roaming on domain-joined machines; skip for predictability since
+  pan-agent is a per-user desktop agent. `wincred.PersistSession` is too
+  ephemeral (lost at logoff).
 - `wincred.GetGenericCredential(target)` returns `nil, syscall.Errno(1168)`
   (ERROR_NOT_FOUND) — map to `ErrNotFound`.
 - `cred.CredentialBlob` is `[]byte`; store value as UTF-8 bytes; Get returns
   `string(cred.CredentialBlob)`.
+- `CRED_MAX_CREDENTIAL_BLOB_SIZE` is 2560 bytes. HMAC-SHA256 or AES-256 keys
+  (32 bytes each) fit trivially. If a caller stores a serialized struct, Set
+  must validate `len(value) ≤ 2560` before invoking wincred (return
+  `fmt.Errorf("secret: value exceeds 2560-byte wincred blob limit")`).
 
 ### Sentinel error mapping table
 
@@ -261,6 +260,14 @@ import (
 ```
 
 ### Backend strategy
+
+> **TODO (coder)**: evaluate `github.com/ppacher/go-dbus-keyring` and
+> `github.com/zalando/go-keyring` against direct godbus before implementing.
+> Criteria: (a) MIT or BSD-3-Clause licensed, (b) pure Go (no CGo),
+> (c) commit activity in 2026-02 or later, (d) covers our error surface
+> (`ServiceUnknown`, `IsLocked`, `Unlock` navigation). If all four criteria
+> pass, prefer the library to cut ~200 lines of protocol-level D-Bus wire
+> code. If any criterion fails, fall back to the direct implementation below.
 
 Speak the FreeDesktop.org Secret Service API (v1) over the session bus
 directly. Implements the same wire protocol that `libsecret` + `secret-tool`
