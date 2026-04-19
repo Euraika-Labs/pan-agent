@@ -233,6 +233,13 @@ func (d *DB) Close() error {
 	return d.db.Close()
 }
 
+// RawDB returns the underlying *sql.DB. Used by packages (e.g. internal/recovery)
+// that need direct SQL access on the same connection pool without going through
+// the storage.DB facade.
+func (d *DB) RawDB() *sql.DB {
+	return d.db
+}
+
 // migrate creates all required tables and indexes if they do not already exist.
 // It is safe to call on an existing database — every statement uses IF NOT EXISTS.
 func (d *DB) migrate() error {
@@ -336,6 +343,30 @@ CREATE TABLE IF NOT EXISTS office_audit (
     result        TEXT
 );
 CREATE INDEX IF NOT EXISTS office_audit_ts_idx ON office_audit(ts DESC);
+
+-- ---------------------------------------------------------------------------
+-- Phase 12 WS#2 — action_receipts (append-only action journal)
+-- kind:             'fs_write'|'fs_delete'|'shell'|'browser_form'|'saas_api'
+-- snapshot_tier:    'cow'|'copyfs'|'audit_only'
+-- reversal_status:  'reversible'|'audit_only'|'reversed_externally'|'irrecoverable'
+-- redacted_payload: HMAC-masked via internal/secret before write — raw bytes
+--                   never reach this column.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS action_receipts (
+    id               TEXT    PRIMARY KEY,
+    task_id          TEXT    NOT NULL,
+    event_id         INTEGER,
+    kind             TEXT    NOT NULL,
+    snapshot_tier    TEXT    NOT NULL,
+    reversal_status  TEXT    NOT NULL,
+    redacted_payload TEXT,
+    saas_deep_link   TEXT,
+    created_at       INTEGER NOT NULL,
+    FOREIGN KEY (task_id)  REFERENCES tasks(id),
+    FOREIGN KEY (event_id) REFERENCES task_events(id)
+);
+CREATE INDEX IF NOT EXISTS idx_action_receipts_task_created
+    ON action_receipts(task_id, created_at);
 `
 	_, err := d.db.Exec(schema)
 	if err != nil {
