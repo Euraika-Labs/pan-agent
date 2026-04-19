@@ -16,6 +16,18 @@ internal/claw3d/vendor/upstream/
 .claude/
 .claude-octopus/
 
+# Ruflo / claude-flow runtime — agent swarms, vector DB, daemon state
+.claude-flow/
+.swarm/
+ruvector.db
+
+# Per-user tooling state — MCP project config (auto-generated), Playwright MCP cache,
+# remember-skill buffers, impeccable design notes
+.mcp.json
+.playwright-mcp/
+.remember/
+.impeccable.md
+
 # Tauri / Rust
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
