@@ -8,13 +8,13 @@ require (
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/jezek/xgb v1.3.0
+	github.com/jezek/xgb v1.3.1
 	github.com/kbinani/screenshot v0.0.0-20230812210009-b87d31814237
-	github.com/slack-go/slack v0.22.0
+	github.com/slack-go/slack v0.23.0
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/sys v0.42.0
-	golang.org/x/text v0.32.0
-	modernc.org/sqlite v1.48.2
+	golang.org/x/sys v0.43.0
+	golang.org/x/text v0.36.0
+	modernc.org/sqlite v1.49.1
 )
 
 require (
@@ -31,7 +31,7 @@ require (
 	github.com/ysmood/gson v0.7.3 // indirect
 	github.com/ysmood/leakless v0.9.0 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
-	modernc.org/libc v1.70.0 // indirect
+	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
