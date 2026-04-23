@@ -33,7 +33,7 @@ const (
 type SnapshotInfo struct {
 	Tier      SnapshotTier
 	ReceiptID string
-	Subpath   string  // relative to Snapshotter.root
+	Subpath   string // relative to Snapshotter.root
 	SizeBytes int64
 	FileCount int
 	DeviceID  uint64
@@ -150,16 +150,16 @@ func withCrossDeviceStatHook() Option {
 
 // Snapshotter captures files before the agent mutates them.
 type Snapshotter struct {
-	root             string
-	session          string
-	probe            *capabilityCache
-	maxCopyMB        int
-	maxCopyN         int
-	clock            func() int64
-	browserProfileDir string          // overridable for tests
-	execStub         func(name string, args []string) error // nil = real exec
-	probeHook        func()           // called on each cache-miss probe
-	statHook         func(string) (os.FileInfo, error) // nil = os.Stat
+	root              string
+	session           string
+	probe             *capabilityCache
+	maxCopyMB         int
+	maxCopyN          int
+	clock             func() int64
+	browserProfileDir string                                 // overridable for tests
+	execStub          func(name string, args []string) error // nil = real exec
+	probeHook         func()                                 // called on each cache-miss probe
+	statHook          func(string) (os.FileInfo, error)      // nil = os.Stat
 }
 
 // NewSnapshotter creates a Snapshotter for the given session.

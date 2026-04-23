@@ -19,8 +19,8 @@ import (
 // Handler holds the dependencies for the /v1/recovery/* endpoints.
 // Constructed by the gateway and handed the Journal, Registry, and Snapshotter.
 type Handler struct {
-	journal    *Journal
-	registry   *Registry
+	journal     *Journal
+	registry    *Registry
 	snapshotter *Snapshotter
 }
 

@@ -28,7 +28,7 @@ func TestValidateKey(t *testing.T) {
 		{name: "empty", key: "", wantErr: true},
 		{name: "leading-dash", key: "-badkey", wantErr: true},
 		{name: "over-128-chars", key: "a" + repeat('b', 128), wantErr: true},
-		{name: "unicode-fullwidth-A", key: "Ａkey", wantErr: true},     // U+FF21 fullwidth A
+		{name: "unicode-fullwidth-A", key: "Ａkey", wantErr: true},       // U+FF21 fullwidth A
 		{name: "unicode-fullwidth-dot", key: "key．name", wantErr: true}, // U+FF0E fullwidth full stop
 		{name: "path-traversal", key: "../foo", wantErr: true},
 		{name: "path-traversal-deep", key: "a/../../etc/passwd", wantErr: true},
