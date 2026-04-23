@@ -22,10 +22,11 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Paths */
-    "baseUrl": ".",
+    /* Paths — under moduleResolution: "bundler", paths resolve relative
+       to tsconfig.json, so baseUrl is not needed and is a deprecation
+       error in TypeScript 6.0 (TS5101). */
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"]

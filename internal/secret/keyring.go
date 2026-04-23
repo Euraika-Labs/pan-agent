@@ -45,9 +45,9 @@ type backend interface {
 // interface, keeping platform files as simple free functions (no structs needed).
 type platformBackend struct{}
 
-func (platformBackend) set(key, value string) error        { return setPlatform(key, value) }
-func (platformBackend) get(key string) (string, error)     { return getPlatform(key) }
-func (platformBackend) delete(key string) error            { return deletePlatform(key) }
+func (platformBackend) set(key, value string) error    { return setPlatform(key, value) }
+func (platformBackend) get(key string) (string, error) { return getPlatform(key) }
+func (platformBackend) delete(key string) error        { return deletePlatform(key) }
 
 // activeBackend is the live dispatch target. Tests swap it via setBackend.
 var activeBackend backend = platformBackend{}

@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	defaultReaperInterval   = 10 * time.Second
-	defaultStaleAfter       = 60 * time.Second
-	defaultPurgeAge         = 7 * 24 * time.Hour
+	defaultReaperInterval = 10 * time.Second
+	defaultStaleAfter     = 60 * time.Second
+	defaultPurgeAge       = 7 * 24 * time.Hour
 )
 
 // Reaper runs on a fixed interval and performs:

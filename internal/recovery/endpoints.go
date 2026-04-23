@@ -19,8 +19,8 @@ import (
 // Handler holds the dependencies for the /v1/recovery/* endpoints.
 // Constructed by the gateway and handed the Journal, Registry, and Snapshotter.
 type Handler struct {
-	journal    *Journal
-	registry   *Registry
+	journal     *Journal
+	registry    *Registry
 	snapshotter *Snapshotter
 }
 
@@ -173,12 +173,7 @@ func (h *Handler) Undo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := undoResponse{
-		Applied:    result.Applied,
-		NewStatus:  result.NewStatus,
-		Details:    result.Details,
-		ApprovalID: result.ApprovalID,
-	}
+	resp := undoResponse(result)
 
 	// Shell reversals produce a pending approval — return 202 Accepted so the
 	// client knows to poll /v1/approvals/{id} rather than treating this as done.
@@ -318,9 +313,3 @@ func parsePagination(r *http.Request) (limit, offset int) {
 	}
 	return limit, offset
 }
-
-// contextKey is an unexported type for context values in this package.
-type contextKey struct{ name string }
-
-// Ensure context.Context is used (suppress unused import if needed).
-var _ context.Context

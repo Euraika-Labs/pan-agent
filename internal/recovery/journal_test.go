@@ -122,7 +122,7 @@ func TestRecordRedactsBeforeWrite(t *testing.T) {
 		// Use a labeled form (api_key=<value>) because internal/secret's generic
 		// api_key classifier requires a labeled prefix; catching bare Stripe
 		// "sk_test_" prefixes is a separate future pattern.
-		Payload:        []byte("command used api_key=" + rawKey + " to call API"),
+		Payload: []byte("command used api_key=" + rawKey + " to call API"),
 	}
 	if err := j.Record(ctx, r); err != nil {
 		t.Fatalf("Record: %v", err)

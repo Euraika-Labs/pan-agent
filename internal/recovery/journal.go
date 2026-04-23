@@ -17,9 +17,9 @@ import (
 
 // Sentinel errors for the journal. Follow internal/approval/approval.go pattern.
 var (
-	ErrReceiptNotFound      = errors.New("recovery: receipt not found")
-	ErrReceiptAlreadyFinal  = errors.New("recovery: receipt status is final")
-	ErrInvalidReceiptKind   = errors.New("recovery: invalid receipt kind")
+	ErrReceiptNotFound       = errors.New("recovery: receipt not found")
+	ErrReceiptAlreadyFinal   = errors.New("recovery: receipt status is final")
+	ErrInvalidReceiptKind    = errors.New("recovery: invalid receipt kind")
 	ErrUnknownReversalStatus = errors.New("recovery: unknown reversal status")
 )
 

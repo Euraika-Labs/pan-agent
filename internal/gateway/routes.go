@@ -146,10 +146,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// --------------------------------------------------------------- recovery
 	// Action journal + rollback surface (Phase 12 WS#2).
-	mux.HandleFunc("GET /v1/recovery/list",              s.handleRecoveryList)
-	mux.HandleFunc("GET /v1/recovery/list/{taskID}",     s.handleRecoveryListByTask)
+	mux.HandleFunc("GET /v1/recovery/list", s.handleRecoveryList)
+	mux.HandleFunc("GET /v1/recovery/list/{taskID}", s.handleRecoveryListByTask)
 	mux.HandleFunc("POST /v1/recovery/undo/{receiptID}", s.handleRecoveryUndo)
-	mux.HandleFunc("GET /v1/recovery/diff/{receiptID}",  s.handleRecoveryDiff)
+	mux.HandleFunc("GET /v1/recovery/diff/{receiptID}", s.handleRecoveryDiff)
 
 	// ----------------------------------------------------------------- health
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
