@@ -52,10 +52,21 @@ pan-agent chat --model gpt-4o-mini
 
 Prerequisites:
 - Go 1.25.0+
-- Node.js 22+ (only for the desktop app)
-- Rust stable (only for the Tauri build)
+- Node.js 22+ with npm (only for the desktop app)
+- Rust via rustup for the Tauri build (`rustup default stable`)
 - Linux: `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`
 - macOS: Xcode Command Line Tools
+
+Before running any native desktop build, confirm the local desktop toolchain is actually available:
+
+```bash
+rustup default stable
+rustup show
+cargo --version
+rustc --version
+```
+
+If `npm run check:tauri` or `npx tauri build` fails with `rustup could not choose a version of cargo to run`, rustup has no default toolchain yet. Run `rustup default stable` and retry.
 
 ```bash
 git clone https://git.euraika.net/euraika/pan-agent.git
@@ -65,18 +76,27 @@ cd pan-agent
 go build -o pan-agent.exe ./cmd/pan-agent
 go test ./... -count=1 -timeout 120s
 
-# Frontend (typecheck + production build)
+# Frontend (locked install + repo checks)
 cd desktop
-npm install
-npx tsc --noEmit
-npx vite build
+npm ci
+npm run lint
+npm run typecheck
+npm run build:vite
 
-# Full Tauri installer (needs Rust)
-# Build the Go sidecar with the right name first:
+# Native Tauri shell
+npm run check:tauri
+
+# Full Tauri installer (needs Rust + Go sidecar)
+# Build the Go sidecar with the target-triple filename Tauri expects.
+# Example for Linux x86_64; replace the filename on other platforms:
+#   Windows: pan-agent-x86_64-pc-windows-msvc.exe
+#   macOS ARM: pan-agent-aarch64-apple-darwin
+#   Linux x86_64: pan-agent-x86_64-unknown-linux-gnu
 cd ..
-go build -o desktop/src-tauri/binaries/pan-agent-x86_64-pc-windows-msvc.exe ./cmd/pan-agent
+go build -o desktop/src-tauri/binaries/pan-agent-x86_64-unknown-linux-gnu ./cmd/pan-agent
 cd desktop
-npx tauri build
+# For local unsigned testing builds, use --no-sign.
+npx tauri build --no-sign
 ```
 
 On macOS, set `MACOSX_DEPLOYMENT_TARGET=14.0` before building the Go binary.

@@ -109,6 +109,22 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
 
+  desktop-lint:
+    name: Desktop lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+
   rust-fmt-clippy:
     name: Rust fmt + clippy
     runs-on: ubuntu-latest

@@ -2,6 +2,33 @@
 
 This runbook covers problems with local builds and CI pipelines.
 
+## Symptom: `cargo check` fails with `rustup could not choose a version of cargo to run`
+
+Full error:
+```
+error: rustup could not choose a version of cargo to run, because one wasn't specified explicitly, and no default is configured.
+help: run 'rustup default stable' to download the latest stable release of Rust and set it as your default toolchain.
+```
+
+### Cause
+
+Rustup is installed, but no default Rust toolchain has been configured for this user yet.
+
+### Fix
+
+```bash
+rustup default stable
+rustup show
+cargo --version
+rustc --version
+cd desktop
+npm run check:tauri
+```
+
+If you are trying to produce a native desktop bundle, also make sure Node/npm dependencies are installed with `cd desktop && npm ci`, Linux Tauri packages are present on Ubuntu/WSL hosts, and the Go sidecar was built into `desktop/src-tauri/binaries/` with the correct target-triple filename before `npx tauri build`.
+
+On Ubuntu/WSL, `npm run check:tauri` (which targets `desktop/src-tauri/`) also needs the GTK/WebKit pkg-config stack available locally (`atk`, `gdk-3.0`, `pango`, `gdk-pixbuf-2.0`, WebKitGTK, related headers). The GitHub Actions Tauri/lint jobs install those packages explicitly; if they are missing on your machine, expect a system-library failure before Rust code is compiled.
+
 ## Symptom: `npm ci` fails with "package.json and package-lock.json out of sync"
 
 Full error:
@@ -83,10 +110,10 @@ To configure the secret:
 
 For local dev builds without signing:
 ```bash
-TAURI_SIGNING_PRIVATE_KEY="" npx tauri build
+npx tauri build --no-sign
 ```
 
-(the empty string is the documented way to skip signing for testing).
+(`--no-sign` is the reliable way to skip updater signing for local testing builds.)
 
 ## Symptom: tauri-action fails: "Missing script: tauri"
 

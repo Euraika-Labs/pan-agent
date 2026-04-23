@@ -33,6 +33,7 @@ manual/
 │   ├── 03 - Auto-Update System
 │   ├── 04 - Configuration Reference
 │   ├── 05 - Security Model
+│   ├── 06 - Release Readiness Checklist
 │   └── 0X - Issues runbooks (Setup, Gateway, PC Control, Build/CI)
 └── Part IV - User Guide/
     ├── 01 - Chat
@@ -45,7 +46,7 @@ manual/
     └── 08 - Office Claw3D
 ```
 
-39 markdown documents organized in the same style as the Hermes V3 Prod manual in the Euraika Obsidian vault.
+42 markdown documents organized in the same style as the Hermes V3 Prod manual in the Euraika Obsidian vault.
 
 ## Conventions
 

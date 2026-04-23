@@ -33,6 +33,7 @@ Read it user-first: Pan-Agent is a single-binary AI desktop agent with full PC c
 - [[03 - Auto-Update System]]
 - [[04 - Configuration Reference]]
 - [[05 - Security Model]]
+- [[06 - Release Readiness Checklist]]
 - [[00 - Troubleshooting Index]]
 - [[01 - Setup Wizard Issues]]
 - [[02 - Gateway Bot Issues]]

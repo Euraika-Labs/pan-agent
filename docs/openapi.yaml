@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pan-Agent HTTP API
-  version: 0.4.2
+  version: 0.4.4
   description: |
     Localhost-first REST + Server-Sent-Events API served by the Pan-Agent
     Go backend (default: `http://127.0.0.1:8642`). The Tauri desktop is
@@ -54,6 +54,7 @@ components:
             - forbidden
             - not_found
             - conflict
+            - no_inverse_known
             - not_implemented
             - host_not_allowed
             - internal_error
@@ -127,6 +128,73 @@ components:
         usage: { type: object, additionalProperties: true }
         session_id: { type: string }
         error: { type: string }
+
+    RecoveryReceipt:
+      type: object
+      required: [id, taskId, kind, snapshotTier, reversalStatus, redactedPayload, createdAt]
+      properties:
+        id: { type: string }
+        taskId: { type: string }
+        kind:
+          type: string
+          enum: [fs_write, fs_delete, shell, browser_form, saas_api]
+        snapshotTier:
+          type: string
+          enum: [cow, copyfs, audit_only]
+        reversalStatus:
+          type: string
+          enum: [reversible, audit_only, reversed_externally, irrecoverable]
+        redactedPayload:
+          type: string
+          description: Secret-redacted snapshot of the receipt payload.
+        saasDeepLink:
+          type: string
+          description: Optional deep link or snapshot subpath associated with the receipt.
+        createdAt:
+          type: integer
+          format: int64
+          description: Unix seconds.
+
+    RecoveryUndoRequest:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: boolean
+          enum: [true]
+          description: Must be true to guard against accidental undo requests.
+
+    RecoveryUndoResponse:
+      type: object
+      required: [applied, newStatus, details]
+      properties:
+        applied:
+          type: boolean
+        newStatus:
+          type: string
+          enum: [reversible, audit_only, reversed_externally, irrecoverable]
+        details:
+          type: string
+        approvalId:
+          type: string
+          description: Present when the undo requires a separate approval flow.
+
+    RecoveryDiff:
+      type: object
+      required: [kind, before, after, contentType]
+      properties:
+        kind:
+          type: string
+          enum: [fs_write, fs_delete, shell, browser_form, saas_api]
+        before:
+          type: string
+          description: Secret-redacted pre-action snapshot stored in the journal.
+        after:
+          type: string
+          description: Current live-state representation; binary content is summarized rather than returned raw.
+        contentType:
+          type: string
+          enum: [text/plain, json, binary]
 
   responses:
     Error:
@@ -336,3 +404,116 @@ paths:
           content:
             application/yaml: {}
             text/yaml: {}
+
+  /v1/recovery/list:
+    get:
+      summary: List recovery receipts for a session
+      parameters:
+        - in: query
+          name: sessionID
+          required: true
+          schema: { type: string }
+          description: Session ID whose receipts should be listed.
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, minimum: 1 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Receipts for the session, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RecoveryReceipt" }
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /v1/recovery/list/{taskID}:
+    get:
+      summary: List recovery receipts for a task
+      parameters:
+        - in: path
+          name: taskID
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, minimum: 1 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Receipts for the task, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RecoveryReceipt" }
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /v1/recovery/undo/{receiptID}:
+    post:
+      summary: Trigger receipt reversal
+      parameters:
+        - in: path
+          name: receiptID
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecoveryUndoRequest" }
+      responses:
+        "200":
+          description: Reversal applied immediately.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecoveryUndoResponse" }
+        "202":
+          description: Reversal queued behind an approval flow.
+          headers:
+            X-Approval-ID:
+              description: Approval record to resolve before the reversal can continue.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecoveryUndoResponse" }
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /v1/recovery/diff/{receiptID}:
+    get:
+      summary: Compare stored pre-action state with current live state
+      parameters:
+        - in: path
+          name: receiptID
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Before/after view for the receipt.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecoveryDiff" }
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"

@@ -14,6 +14,7 @@ Use this note to find the right runbook fast.
 | Screenshot returns empty / black image | [[03 - PC Control Tool Issues]] |
 | Keyboard tool reports "not supported" | [[03 - PC Control Tool Issues]] |
 | Window manager can't find target window | [[03 - PC Control Tool Issues]] |
+| `cargo check` fails with `rustup could not choose a version of cargo to run` | [[04 - Build and CI Issues]] |
 | `npm ci` fails in CI | [[04 - Build and CI Issues]] |
 | macOS build fails with `CGDisplayCreateImageForRect unavailable` | [[04 - Build and CI Issues]] |
 | Tauri build: "no private key" | [[04 - Build and CI Issues]] |
