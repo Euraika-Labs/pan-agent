@@ -136,18 +136,22 @@ func RunMigration(db *storage.DB, opt MigrateOpts) (MigrateReport, error) {
 		opt.BackupDir = DefaultBackupDir()
 	}
 
+	// sanitizeMigrationPath = filepath.Clean + filepath.Abs. Use the
+	// returned locals directly at every os.* / filepath.Join sink below;
+	// do NOT reassign back into opt.Source / opt.BackupDir. The extra
+	// struct round-trip defeats CodeQL's taint tracker and leaves the
+	// go/path-injection alerts open (#81–#85, #95) even though the
+	// runtime fix is in place.
 	cleanSource, err := sanitizeMigrationPath(opt.Source)
 	if err != nil {
 		return rep, fmt.Errorf("invalid source path: %w", err)
 	}
-	opt.Source = cleanSource
 	cleanBackup, err := sanitizeMigrationPath(opt.BackupDir)
 	if err != nil {
 		return rep, fmt.Errorf("invalid backup dir: %w", err)
 	}
-	opt.BackupDir = cleanBackup
 
-	st, err := os.Stat(opt.Source)
+	st, err := os.Stat(cleanSource)
 	if errors.Is(err, os.ErrNotExist) {
 		rep.Status = "missing"
 		return rep, nil
@@ -159,7 +163,7 @@ func RunMigration(db *storage.DB, opt MigrateOpts) (MigrateReport, error) {
 	// Digest of (path + mtime) identifies a specific source version.
 	// Re-running against the same file with the same mtime is a skip
 	// unless Force is set.
-	hash := sha256.Sum256([]byte(opt.Source + "|" + st.ModTime().Format(time.RFC3339)))
+	hash := sha256.Sum256([]byte(cleanSource + "|" + st.ModTime().Format(time.RFC3339)))
 	rep.Digest = hex.EncodeToString(hash[:])
 
 	if !opt.Force {
@@ -173,7 +177,7 @@ func RunMigration(db *storage.DB, opt MigrateOpts) (MigrateReport, error) {
 		}
 	}
 
-	data, err := os.ReadFile(opt.Source)
+	data, err := os.ReadFile(cleanSource)
 	if err != nil {
 		return rep, fmt.Errorf("read source: %w", err)
 	}
@@ -222,12 +226,12 @@ func RunMigration(db *storage.DB, opt MigrateOpts) (MigrateReport, error) {
 		return rep, fmt.Errorf("audit: %w", err)
 	}
 
-	if err := os.MkdirAll(opt.BackupDir, 0o750); err != nil {
+	if err := os.MkdirAll(cleanBackup, 0o750); err != nil {
 		return rep, fmt.Errorf("mkdir backup: %w", err)
 	}
-	backup := filepath.Join(opt.BackupDir,
-		filepath.Base(opt.Source)+".bak."+time.Now().Format("20060102-150405"))
-	if err := os.Rename(opt.Source, backup); err != nil {
+	backup := filepath.Join(cleanBackup,
+		filepath.Base(cleanSource)+".bak."+time.Now().Format("20060102-150405"))
+	if err := os.Rename(cleanSource, backup); err != nil {
 		// The data import succeeded; log-but-don't-fail here because
 		// moving the source is housekeeping, not correctness.
 		rep.Status = "ok"
