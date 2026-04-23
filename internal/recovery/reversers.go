@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -29,21 +28,6 @@ var (
 // Tests inject fakeApprovalStore which satisfies this interface.
 type ApprovalRequester interface {
 	RequestApproval(sessionID, toolName, arguments string, level approval.Level) (string, error)
-}
-
-// realApprovalRequester adapts approval.Store to ApprovalRequester.
-type realApprovalRequester struct {
-	store *approval.Store
-}
-
-func (r *realApprovalRequester) RequestApproval(sessionID, toolName, arguments string, level approval.Level) (string, error) {
-	chk := approval.ApprovalCheck{
-		Level:       level,
-		PatternKey:  "recovery.shell_inverse",
-		Description: "Reversal: " + toolName,
-	}
-	a := r.store.CreateWithCheck(sessionID, toolName, arguments, chk)
-	return a.ID, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -348,13 +332,3 @@ func (b *BrowserFormReverser) Reverse(_ context.Context, r Receipt) (ReverseResu
 // ---------------------------------------------------------------------------
 // snapshot metadata helper
 // ---------------------------------------------------------------------------
-
-// snapshotFileStat reads os.FileInfo for a file in the snapshot tree.
-func snapshotFileStat(snapRoot, subpath, filename string) (os.FileInfo, error) {
-	p := fmt.Sprintf("%s/%s/%s", snapRoot, subpath, filename)
-	fi, err := os.Stat(p)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrSnapshotMissing, err)
-	}
-	return fi, nil
-}

@@ -329,7 +329,7 @@ func isHexString(s string) bool {
 		sub := s[i : i+hexLen]
 		ok := true
 		for _, c := range sub {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 				ok = false
 				break
 			}

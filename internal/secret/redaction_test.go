@@ -43,18 +43,6 @@ func TestMain(m *testing.M) {
 // helpers
 // ---------------------------------------------------------------------------
 
-// wantToken returns the expected redaction token for a given category and
-// plaintext, using the same algorithm as the production code:
-// HMAC-SHA256(key, category + ":" + plaintext), first 6 hex chars.
-// This lets us write precise assertions without duplicating the impl.
-func wantToken(category Category, plaintext string) string {
-	// We cannot call the internal hmacToken function directly from tests because
-	// it is unexported. Instead we assert on the observable token format:
-	// "<REDACTED:CATEGORY:xxxxxx>" where xxxxxx is 6 hex chars.
-	// Tests that need the exact token value call Redact and capture the output.
-	return fmt.Sprintf("<REDACTED:%s:", string(category))
-}
-
 // extractToken finds the first "<REDACTED:…>" span in s and returns it.
 // Returns ("", false) if none found.
 func extractToken(s string) (string, bool) {
@@ -83,7 +71,7 @@ func assertTokenFormat(t *testing.T, tok string, wantCat Category) {
 		t.Errorf("token hex suffix %q: want 6 chars, got %d", rest, len(rest))
 	}
 	for _, c := range rest {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Errorf("token hex suffix %q contains non-hex char %q", rest, c)
 		}
 	}

@@ -200,21 +200,6 @@ func makeToken(key []byte, cat Category, plaintext string) string {
 	return "<REDACTED:" + string(cat) + ":" + hex.EncodeToString(sum)[:6] + ">"
 }
 
-// makeTokenForTest is a package-internal helper so tests can compute expected
-// tokens without reimplementing makeToken.
-func makeTokenForTest(key []byte, cat Category, plaintext string) string {
-	return makeToken(key, cat, plaintext)
-}
-
-// redactorKey returns the current HMAC key bytes for test assertions.
-func redactorKey() []byte {
-	global.mu.RLock()
-	defer global.mu.RUnlock()
-	k := make([]byte, len(global.key))
-	copy(k, global.key)
-	return k
-}
-
 // initKey loads the HMAC key from the OS keyring on first call. If absent,
 // a new 32-byte random key is minted and persisted. Thread-safe via sync.Once.
 func (r *redactor) initKey() {

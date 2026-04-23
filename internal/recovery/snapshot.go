@@ -228,7 +228,7 @@ func (s *Snapshotter) Capture(ctx context.Context, path, receiptID string) (Snap
 func (s *Snapshotter) CaptureMany(ctx context.Context, pathList []string, receiptID string) (SnapshotInfo, error) {
 	var totalSize int64
 	var fileCount int
-	var tier SnapshotTier = TierCoW
+	tier := TierCoW
 	var devID uint64
 
 	destDir := s.destDir(receiptID)
