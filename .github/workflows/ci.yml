@@ -86,6 +86,11 @@ jobs:
   tauri:
     name: Tauri (${{ matrix.settings.platform }})
     needs: [go, desktop]
+    # Dependabot PRs run with restricted permissions and cannot read
+    # secrets.TAURI_SIGNING_PRIVATE_KEY, which breaks `npx tauri build`
+    # at the updater-sign step. Skip Tauri for bot PRs; main branch
+    # and human PRs still get full cross-platform Tauri CI.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ${{ matrix.settings.runner }}
     strategy:
       fail-fast: false
