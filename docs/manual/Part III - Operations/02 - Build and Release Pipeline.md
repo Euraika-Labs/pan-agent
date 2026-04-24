@@ -24,7 +24,7 @@ Triggered on every push and PR. Three jobs:
 
 ### 2. `desktop` — Frontend typecheck + build (Linux only)
 - Runs on `ubuntu-latest` (no platform-specific code in the React frontend).
-- `npm ci` → `npx tsc --noEmit` → `npx vite build`.
+- `npm ci` → `npm run typecheck` → `npm run lint` → `npx vite build`.
 
 ### 3. `tauri` — Full Tauri build (3-OS matrix)
 - Depends on `go` and `desktop`.
@@ -38,6 +38,19 @@ Triggered on every push and PR. Three jobs:
 - Uploads installers as artifacts.
 
 Required secrets: `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The Tauri build fails without these because `createUpdaterArtifacts` is enabled in `tauri.conf.json`.
+
+## Lint workflow (.github/workflows/lint.yml)
+
+Triggered on every push and PR. It runs the repo's fast validation gates in parallel:
+
+- `golangci-lint`
+- `govulncheck`
+- `gosec`
+- `Desktop typecheck` (`desktop/`: `npm ci` → `npm run typecheck`)
+- `Desktop lint` (`desktop/`: `npm ci` → `npm run lint`)
+- `Rust fmt + clippy` (`desktop/src-tauri/`: `cargo fmt --all -- --check` and `cargo clippy --all-targets --all-features -- -D warnings`)
+
+The Rust lint job also installs the Linux GTK/WebKit dependencies and builds the Go sidecar first, because Tauri config resolution depends on those prerequisites even for non-release validation.
 
 ## Release workflow (.github/workflows/release.yml)
 
@@ -53,6 +66,8 @@ Triggered on `v*` tag pushes. Same 3-OS matrix as the Tauri CI job, but uses `ta
 The release is published immediately (`releaseDraft: false`).
 
 ## Cutting a release
+
+Before tagging, run the pre-ship checklist in [[06 - Release Readiness Checklist]].
 
 ```bash
 # 1. Bump versions in three places (manual for now)
@@ -131,5 +146,6 @@ If the private key leaks:
 | `cannot use _cgo2 (variable of type *_Ctype_CFTypeRef) as *unsafe.Pointer value` | macOS CGo type mismatch | Use `var x unsafe.Pointer` instead of `var x C.CFTypeRef` for `CFDictionaryGetValueIfPresent` |
 
 ## Read next
+- [[06 - Release Readiness Checklist]]
 - [[03 - Auto-Update System]]
 - [[04 - Build and CI Issues]]

@@ -15,15 +15,16 @@ go build -o pan-agent.exe ./cmd/pan-agent
 go test ./... -count=1 -timeout 120s
 
 # Desktop frontend
-cd desktop && npm install && npm run dev:vite
-npx tsc --noEmit
+cd desktop && npm ci && npm run dev:vite
+npm run lint
+npm run typecheck
 ```
 
 ## Workflow
 
 1. Fork or branch from `main`
 2. Make your changes
-3. Run `go test ./...` and `npx tsc --noEmit` — both must pass
+3. Run `go test ./...`, `cd desktop && npm run lint`, and `cd desktop && npm run typecheck` — all must pass
 4. Commit with a descriptive message following [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `refactor:`, etc.)
 5. Open a merge request on GitLab (primary) or a pull request on GitHub (mirror)
 
@@ -35,7 +36,7 @@ npx tsc --noEmit
 ## Code Style
 
 - **Go:** Standard `gofmt` formatting. No third-party linter config — the stdlib conventions apply.
-- **TypeScript/React:** Follow existing patterns in `desktop/src/`. No ESLint config yet — keep it consistent with what's there.
+- **TypeScript/React:** Follow existing patterns in `desktop/src/`. Run `npm run lint` and `npm run typecheck` from `desktop/` before opening a PR.
 - **Tests:** Go tests use `t.TempDir()` for isolation. Frontend has no test framework yet.
 
 ## What to Work On

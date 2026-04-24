@@ -185,13 +185,13 @@ Embedded document/spreadsheet/presentation editor (via the [pan-office](https://
 
 ## Documentation
 
-The full manual is in [`docs/manual/`](docs/manual/) — 39 documents organized in four parts:
+The full manual is in [`docs/manual/`](docs/manual/) — 42 documents organized in four parts:
 
 | Part | What's in it |
 |---|---|
 | [**I — Foundations**](docs/manual/Part%20I%20-%20Foundations/) | Quick Start, System Overview, Architecture, HTTP API Surface |
 | [**II — Components**](docs/manual/Part%20II%20-%20Components/) | Go Backend, Tauri Frontend, LLM Client, Tool Registry, Approval, Storage, Profiles, Bots |
-| [**III — Operations**](docs/manual/Part%20III%20-%20Operations/) | Installation, Build pipeline, Auto-update, Config reference, Security + Troubleshooting runbooks |
+| [**III — Operations**](docs/manual/Part%20III%20-%20Operations/) | Installation, Build pipeline, release readiness checklist, Auto-update, Config reference, Security + Troubleshooting runbooks |
 | [**IV — User Guide**](docs/manual/Part%20IV%20-%20User%20Guide/) | Chat, Tools, Profiles, Models, Memory, Skills, Schedules, Office |
 
 **Where to start:**
@@ -258,7 +258,7 @@ pan-agent/
 │   ├── src-tauri/          Rust shell + plugins (shell, updater)
 │   ├── src/                15 React screens
 │   └── package.json
-├── docs/                   Comprehensive manual (39 documents)
+├── docs/                   Comprehensive manual (42 documents)
 │   ├── README.md
 │   └── manual/
 └── .github/workflows/      CI matrix (Win/Mac/Linux) + release pipeline
@@ -271,10 +271,12 @@ pan-agent/
 ### Prerequisites
 
 - **Go 1.25+** — for the backend
-- **Node.js 22+** — for the desktop frontend
-- **Rust stable** — only for the Tauri build
+- **Node.js 22+ with npm** — for the desktop frontend (`cd desktop && npm ci`)
+- **Rust via rustup** — required for native Tauri work. After installing rustup, run `rustup default stable`, then verify with `cargo --version` and `rustc --version`.
 - **Linux extras**: `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`
 - **macOS extras**: Xcode Command Line Tools, `MACOSX_DEPLOYMENT_TARGET=14.0` env var
+
+If `npm run check:tauri` prints `rustup could not choose a version of cargo to run`, rustup is installed but no default toolchain is configured yet. Fix it with `rustup default stable`.
 
 ### Build
 
@@ -286,17 +288,29 @@ cd pan-agent
 go build -o pan-agent.exe ./cmd/pan-agent
 go test ./... -count=1 -timeout 120s
 
-# Frontend (typecheck + production build)
+# Desktop frontend dependencies + checks
 cd desktop
-npm install
-npx tsc --noEmit
-npx vite build
+npm ci
+npm run lint
+npm run typecheck
+npm run build:vite
 
-# Full Tauri installer (needs Rust)
+# Native Rust/Tauri prerequisites check
+cargo --version
+rustc --version
+npm run check:tauri
+
+# Full Tauri installer (needs Rust + Go sidecar)
 cd ..
-go build -o desktop/src-tauri/binaries/pan-agent-x86_64-pc-windows-msvc.exe ./cmd/pan-agent
+# Build the Go sidecar with the target-triple filename Tauri expects.
+# Example for Linux x86_64; replace the filename on other platforms:
+#   Windows: pan-agent-x86_64-pc-windows-msvc.exe
+#   macOS ARM: pan-agent-aarch64-apple-darwin
+#   Linux x86_64: pan-agent-x86_64-unknown-linux-gnu
+go build -o desktop/src-tauri/binaries/pan-agent-x86_64-unknown-linux-gnu ./cmd/pan-agent
 cd desktop
-npx tauri build
+# For local unsigned testing builds, use --no-sign.
+npx tauri build --no-sign
 ```
 
 ### Run in dev mode
@@ -416,7 +430,7 @@ Contributions welcome — bug fixes, new features, doc improvements.
 
 1. Fork or branch from `main`.
 2. Make your changes.
-3. Run `go test ./...` and `npx tsc --noEmit` — both must pass.
+3. Run `go test ./...`, `cd desktop && npm run lint`, and `cd desktop && npm run typecheck` — all must pass.
 4. Commit using [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `refactor:`).
 5. Open a merge request on GitLab (primary) or pull request on GitHub (mirror).
 
@@ -437,7 +451,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 | Supported LLM providers | 9 |
 | Built-in tools | 22+ (includes `skill_manage`, `skill_view`, `skills_list`, `skill_review`, `skill_curator`) |
 | Self-healing skill system | Phase 11 — proposal queue, reviewer + curator agents, history+rollback |
-| Documentation | 40 manual documents |
+| Documentation | 42 manual documents |
 | License | MIT |
 
 Pan-Agent has reached **full feature parity with its predecessor (Pan Desktop / Hermes Desktop)** plus cross-platform support — see [CHANGELOG.md](CHANGELOG.md) for the version history.

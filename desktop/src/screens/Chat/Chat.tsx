@@ -481,11 +481,11 @@ function Chat({
    * Send a message to the backend via SSE streaming.
    * Returns a promise that resolves when the stream ends or errors.
    */
-  function sendToBackend(
+  const sendToBackend = useCallback((
     text: string,
     history: { role: string; content: string }[],
     currentSessionId?: string,
-  ): void {
+  ): void => {
     // Build the message list: history + the new user message
     const messages = [
       ...history.map((m) => ({ role: m.role === "agent" ? "assistant" : m.role, content: m.content })),
@@ -582,7 +582,7 @@ function Chat({
     );
 
     abortStreamRef.current = stop;
-  }
+  }, [setMessages]);
 
   async function handleSend(): Promise<void> {
     const text = input.trim();
@@ -913,7 +913,7 @@ function Chat({
     ]);
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     sendToBackend("/approve", history, agentSessionId || undefined);
-  }, [agentSessionId, setMessages, messages]);
+  }, [agentSessionId, setMessages, messages, sendToBackend]);
 
   const handleDeny = useCallback(() => {
     setInput("");
@@ -924,7 +924,7 @@ function Chat({
     ]);
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     sendToBackend("/deny", history, agentSessionId || undefined);
-  }, [agentSessionId, setMessages, messages]);
+  }, [agentSessionId, setMessages, messages, sendToBackend]);
 
   const visibleMessages = useMemo(
     () => messages.filter((m) => m.content.trim()),
