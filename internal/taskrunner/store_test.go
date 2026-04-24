@@ -267,9 +267,15 @@ func TestEventUniqueness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Duplicate (same task_id, step_id, kind, attempt) should fail
+	// Duplicate (same task_id, step_id, kind, attempt) is silently ignored
+	// (INSERT OR IGNORE) so resume scenarios don't break.
 	err = s.AddEvent(task.ID, "step-1", 1, 2, EventToolCall, `{}`)
-	if err == nil {
-		t.Error("expected uniqueness violation, got nil")
+	if err != nil {
+		t.Errorf("duplicate event should be silently ignored, got: %v", err)
+	}
+	// Only one event should exist despite the duplicate insert.
+	events, _ := s.ListEvents(task.ID, 100)
+	if len(events) != 1 {
+		t.Errorf("expected 1 event (duplicate ignored), got %d", len(events))
 	}
 }

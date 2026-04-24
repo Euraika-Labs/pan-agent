@@ -243,6 +243,51 @@ export function cancelTask(id: string): Promise<{ status: string }> {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 12: Recovery / History
+// ---------------------------------------------------------------------------
+
+export interface ReceiptDTO {
+  id: string;
+  taskId: string;
+  kind: "fs_write" | "fs_delete" | "shell" | "browser_form" | "saas_api";
+  snapshotTier: "cow" | "copyfs" | "audit_only";
+  reversalStatus: "reversible" | "audit_only" | "reversed_externally" | "irrecoverable";
+  redactedPayload: string;
+  saasDeepLink?: string;
+  createdAt: number;
+}
+
+export interface DiffResponse {
+  kind: string;
+  before: string;
+  after: string;
+  contentType: "text/plain" | "json" | "binary";
+}
+
+export interface UndoResponse {
+  applied: boolean;
+  newStatus: string;
+  details: string;
+  approvalId?: string;
+}
+
+export function listRecoveries(sessionId?: string, limit?: number): Promise<ReceiptDTO[]> {
+  const params = new URLSearchParams();
+  if (sessionId) params.set("session_id", sessionId);
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  return fetchJSON<ReceiptDTO[]>(`/v1/recovery/list${qs ? `?${qs}` : ""}`);
+}
+
+export function getRecoveryDiff(receiptId: string): Promise<DiffResponse> {
+  return fetchJSON<DiffResponse>(`/v1/recovery/diff/${receiptId}`);
+}
+
+export function undoRecovery(receiptId: string): Promise<Response> {
+  return fetch(`${BASE}/v1/recovery/undo/${receiptId}`, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
 // M4 W2: office engine + migration + bundle info + persistence alert bus
 // ---------------------------------------------------------------------------
 //

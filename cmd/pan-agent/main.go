@@ -137,13 +137,27 @@ func cmdServe(args []string) error {
 	reaper := taskrunner.NewReaper(taskStore)
 	go reaper.Run(reaperCtx)
 
+	// Start the task runner. It polls for queued tasks every 2s.
+	runnerCtx, cancelRunner := context.WithCancel(context.Background())
+	defer cancelRunner()
+	runner := taskrunner.NewRunner(taskStore, tools.Default)
+	go runner.Start(runnerCtx)
+
+	// Cron dispatcher: creates a task per fire so the runner picks it up.
+	// The "chat" tool referenced in the plan does not exist yet — tasks
+	// will transition to "failed" until the LLM dispatch tool is
+	// registered (tracked as Phase 13 scope). The v1 plumbing (session
+	// creation, task creation, cost cap inheritance) is exercised here.
 	scheduler := cron.NewScheduler(func(ctx context.Context, j cron.Job) error {
 		fmt.Printf("[cron] fire job id=%s name=%q schedule=%q\n", j.ID, j.Name, j.Schedule)
-		// TODO(#cron-exec): dispatch j.Prompt via the gateway's chat
-		// completions endpoint. Needs PAN_AGENT_AUTH_TOKEN + session
-		// creation; tracked separately to avoid smuggling a policy
-		// decision into this remediation.
-		return nil
+		sess, err := db.CreateSession("cron:" + j.Name)
+		if err != nil {
+			return fmt.Errorf("cron session: %w", err)
+		}
+		planJSON := fmt.Sprintf(`{"steps":[{"id":%s,"tool":"chat","params":{"prompt":%s},"description":%s}]}`,
+			mustMarshalString("cron-"+j.ID), mustMarshalString(j.Prompt), mustMarshalString("Cron: "+j.Name))
+		_, err = taskStore.CreateTask(sess.ID, planJSON, j.CostCapUSD)
+		return err
 	})
 	scheduler.Start(schedCtx)
 
@@ -560,6 +574,16 @@ func doctorSwitchEngine(target string) error {
 	}
 	fmt.Printf("engine persisted to config.yaml; next launch uses %s\n", target)
 	return nil
+}
+
+// mustMarshalString JSON-encodes a string safely. Panics on marshal failure
+// (which cannot happen for a valid Go string).
+func mustMarshalString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(fmt.Sprintf("mustMarshalString: %v", err))
+	}
+	return string(b)
 }
 
 // doctorDeprecatedUsage reports whether any legacy /v1/office/* hits

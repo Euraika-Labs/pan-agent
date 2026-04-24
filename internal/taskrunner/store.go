@@ -143,6 +143,45 @@ func (s *Store) ListAllTasks(limit int) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
+// ListQueuedTasks returns queued tasks, oldest first, up to limit.
+func (s *Store) ListQueuedTasks(limit int) ([]Task, error) {
+	rows, err := s.db.Query(
+		`SELECT id, plan_json, status, session_id, created_at,
+		        last_heartbeat_at, next_plan_step_index,
+		        token_budget_cap, cost_cap_usd
+		 FROM tasks
+		 WHERE status = 'queued'
+		 ORDER BY created_at ASC
+		 LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListQueuedTasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []Task
+	for rows.Next() {
+		var t Task
+		var planJSON sql.NullString
+		var lastHBInt sql.NullInt64
+		if err := rows.Scan(
+			&t.ID, &planJSON, &t.Status, &t.SessionID, &t.CreatedAt,
+			&lastHBInt, &t.NextPlanStepIndex,
+			&t.TokenBudgetCap, &t.CostCapUSD,
+		); err != nil {
+			return nil, fmt.Errorf("ListQueuedTasks scan: %w", err)
+		}
+		t.PlanJSON = planJSON.String
+		if lastHBInt.Valid {
+			v := lastHBInt.Int64
+			t.LastHeartbeatAt = &v
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
 // UpdateStatus transitions a task to a new status. Uses compare-and-swap
 // to prevent re-transitioning a task that another goroutine already moved.
 func (s *Store) UpdateStatus(id string, from, to TaskStatus) (bool, error) {
@@ -198,7 +237,7 @@ func (s *Store) AdvanceStep(id string, stepIndex int) error {
 // AddEvent inserts a task event.
 func (s *Store) AddEvent(taskID, stepID string, attempt, sequence int, kind EventKind, payloadJSON string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO task_events (task_id, step_id, attempt, sequence, kind, payload_json, created_at)
+		`INSERT OR IGNORE INTO task_events (task_id, step_id, attempt, sequence, kind, payload_json, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		taskID, stepID, attempt, sequence, kind, payloadJSON, time.Now().UnixMilli(),
 	)

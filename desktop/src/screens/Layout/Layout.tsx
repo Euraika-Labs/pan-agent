@@ -3,6 +3,7 @@ import { ErrorBoundary } from "../../components/ErrorBoundary";
 import Chat, { type ChatMessage } from "../Chat/Chat";
 import Sessions from "../Sessions/Sessions";
 import Tasks from "../Tasks/Tasks";
+import History from "../History/History";
 import Profiles from "../Profiles/Profiles";
 import Settings from "../Settings/Settings";
 import Setup from "../Setup/Setup";
@@ -27,6 +28,7 @@ import {
   MessageSquare as ChatBubble,
   Clock,
   ListChecks,
+  History as HistoryIcon,
   Users,
   Settings as SettingsIcon,
   Puzzle,
@@ -45,6 +47,7 @@ type View =
   | "chat"
   | "sessions"
   | "tasks"
+  | "history"
   | "profiles"
   | "office"
   | "models"
@@ -62,6 +65,7 @@ const NAV_ITEMS: { view: View; icon: LucideIcon; label: string }[] = [
   { view: "chat", icon: ChatBubble, label: "Chat" },
   { view: "sessions", icon: Clock, label: "Sessions" },
   { view: "tasks", icon: ListChecks, label: "Tasks" },
+  { view: "history", icon: HistoryIcon, label: "History" },
   { view: "profiles", icon: Users, label: "Profiles" },
   { view: "office", icon: Building, label: "Office" },
   { view: "models", icon: Layers, label: "Models" },
@@ -251,6 +255,8 @@ function Layout(): React.JSX.Element {
         )}
 
         {view === "tasks" && <Tasks profile={activeProfile} />}
+
+        {view === "history" && <History profile={activeProfile} />}
 
         {view === "profiles" && (
           <Profiles

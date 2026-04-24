@@ -83,3 +83,41 @@ func TestSchedulerFiresDueJob(t *testing.T) {
 		t.Fatalf("dispatcher fired %d times, want ≥1", got)
 	}
 }
+
+// TestCronJobCostCapPersistence verifies that CostCapUSD survives a
+// write/read cycle through jobs.json.
+func TestCronJobCostCapPersistence(t *testing.T) {
+	withIsolatedCronHome(t)
+
+	job, err := Create("budget-job", "30m", "expensive work")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Set CostCapUSD on the job.
+	if err := updateJob(job.ID, func(j *Job) {
+		j.CostCapUSD = 5.0
+	}); err != nil {
+		t.Fatalf("updateJob: %v", err)
+	}
+
+	// Read it back via the public List API.
+	jobs, err := List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	var found *Job
+	for i := range jobs {
+		if jobs[i].ID == job.ID {
+			found = &jobs[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("job not found after write")
+	}
+	if found.CostCapUSD != 5.0 {
+		t.Errorf("CostCapUSD = %f, want 5.0", found.CostCapUSD)
+	}
+}

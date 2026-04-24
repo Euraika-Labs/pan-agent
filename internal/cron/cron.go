@@ -57,6 +57,7 @@ type Job struct {
 	Deliver    []string `json:"deliver,omitempty"`
 	Skills     []string `json:"skills,omitempty"`
 	Script     string   `json:"script,omitempty"`
+	CostCapUSD float64  `json:"cost_cap_usd,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +89,7 @@ type rawJob struct {
 	Deliver         json.RawMessage `json:"deliver"` // string OR []string
 	Skills          json.RawMessage `json:"skills"`  // string OR []string
 	Script          string          `json:"script"`
+	CostCapUSD      float64         `json:"cost_cap_usd,omitempty"`
 }
 
 // scheduleValue is the nested-object schedule format used by pan-agent legacy jobs.
@@ -175,6 +177,7 @@ func fromRaw(r rawJob) Job {
 		Deliver:    deliver,
 		Skills:     skills,
 		Script:     r.Script,
+		CostCapUSD: r.CostCapUSD,
 	}
 }
 

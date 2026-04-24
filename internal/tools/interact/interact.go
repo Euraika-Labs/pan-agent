@@ -32,6 +32,10 @@ const (
 type Request struct {
 	Intent      string            `json:"intent"`
 	App         string            `json:"app,omitempty"`
+	Text        string            `json:"text,omitempty"`
+	X           *int              `json:"x,omitempty"`
+	Y           *int              `json:"y,omitempty"`
+	Key         string            `json:"key,omitempty"`
 	Constraints map[string]string `json:"constraints,omitempty"`
 }
 
@@ -124,6 +128,22 @@ func ToolParameters() json.RawMessage {
     "app": {
       "type": "string",
       "description": "Target application name (optional, helps routing)"
+    },
+    "text": {
+      "type": "string",
+      "description": "Text to type (for 'type' intent)"
+    },
+    "x": {
+      "type": "integer",
+      "description": "X coordinate for click/right_click intents"
+    },
+    "y": {
+      "type": "integer",
+      "description": "Y coordinate for click/right_click intents"
+    },
+    "key": {
+      "type": "string",
+      "description": "Key combination for 'key' intent (e.g., 'ctrl+c', 'super', 'alt+F4')"
     },
     "constraints": {
       "type": "object",
