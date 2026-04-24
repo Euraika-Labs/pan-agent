@@ -104,6 +104,19 @@ func TestFileFunctionsNamed(t *testing.T) {
 	}
 }
 
+func TestBrowserProfile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("PAN_AGENT_HOME", tmp)
+
+	got := BrowserProfile()
+	if !strings.HasPrefix(got, tmp) {
+		t.Errorf("BrowserProfile() = %q, want prefix %q", got, tmp)
+	}
+	if !strings.HasSuffix(got, "browser-profile") {
+		t.Errorf("BrowserProfile() = %q, want suffix 'browser-profile'", got)
+	}
+}
+
 func TestDirFunctionsUnderAgentHome(t *testing.T) {
 	home := AgentHome()
 

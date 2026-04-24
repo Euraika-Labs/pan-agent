@@ -9,10 +9,12 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/euraika-labs/pan-agent/internal/paths"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
@@ -62,26 +64,45 @@ func init() {
 // ---------------------------------------------------------------------------
 
 var (
-	browserMu     sync.Mutex
-	sharedBrowser *rod.Browser
-	sharedPage    *rod.Page
+	browserMu       sync.Mutex
+	sharedLauncher  *launcher.Launcher
+	sharedBrowser   *rod.Browser
+	sharedPage      *rod.Page
+	browserLaunched bool
 )
 
 func acquirePage(ctx context.Context) (*rod.Page, error) {
 	browserMu.Lock()
 	defer browserMu.Unlock()
 
-	// Launch browser lazily on first use.
 	if sharedBrowser == nil {
 		headless := true
 		if v := os.Getenv("PAN_AGENT_BROWSER_HEADLESS"); strings.ToLower(v) == "false" {
 			headless = false
 		}
 
-		u, err := launcher.New().
-			Headless(headless).
-			// go-rod auto-downloads Chromium when not present.
-			Launch()
+		profileDir := browserProfileDir()
+		cleanSingletonLock(profileDir)
+
+		l := launcher.New().
+			UserDataDir(profileDir).
+			Headless(headless)
+
+		// Rod defaults include "use-mock-keychain"; remove it so Chromium
+		// uses the real OS keyring (Safe Storage) for cookie encryption.
+		l.Delete("use-mock-keychain")
+
+		// Remove password-store flag — rod's default launcher doesn't set
+		// it, but Chromium may fall back to "basic" (plaintext) unless we
+		// explicitly avoid injecting one. Deleting ensures Chromium probes
+		// the system keyring.
+		l.Delete("password-store")
+
+		// Security-hardening flags per Phase 12 WS#1.
+		l.Set("disable-extensions")
+		l.Set("disable-component-update")
+
+		u, err := l.Launch()
 		if err != nil {
 			return nil, fmt.Errorf("browser: launch chromium: %w", err)
 		}
@@ -91,10 +112,11 @@ func acquirePage(ctx context.Context) (*rod.Page, error) {
 			return nil, fmt.Errorf("browser: connect: %w", err)
 		}
 
+		sharedLauncher = l
 		sharedBrowser = b
+		browserLaunched = true
 	}
 
-	// Reuse or open a single page.
 	if sharedPage == nil {
 		p, err := sharedBrowser.Page(proto.TargetCreateTarget{URL: "about:blank"})
 		if err != nil {
@@ -104,6 +126,60 @@ func acquirePage(ctx context.Context) (*rod.Page, error) {
 	}
 
 	return sharedPage, nil
+}
+
+var browserProfileOverride string
+
+func browserProfileDir() string {
+	if browserProfileOverride != "" {
+		return browserProfileOverride
+	}
+	return paths.BrowserProfile()
+}
+
+// CloseBrowser shuts down the shared Chromium instance. The profile
+// directory is preserved for reuse across sessions. Safe to call if the
+// browser was never launched. Called from the server shutdown path.
+func CloseBrowser() {
+	browserMu.Lock()
+	defer browserMu.Unlock()
+
+	if !browserLaunched {
+		return
+	}
+
+	if sharedBrowser != nil {
+		_ = sharedBrowser.Close()
+		sharedBrowser = nil
+		sharedPage = nil
+	}
+
+	sharedLauncher = nil
+	browserLaunched = false
+}
+
+// cleanSingletonLock removes a stale SingletonLock file from the Chromium
+// user-data directory. Chromium creates this file to prevent concurrent
+// access; a crashed pan-agent leaves it behind, making the profile
+// unusable until manual cleanup. We only remove it after confirming no
+// live Chromium is using the profile (by checking the SingletonSocket).
+func cleanSingletonLock(profileDir string) {
+	lockPath := filepath.Join(profileDir, "SingletonLock")
+	if _, err := os.Lstat(lockPath); err != nil {
+		return
+	}
+
+	socketPath := filepath.Join(profileDir, "SingletonSocket")
+	if _, err := os.Stat(socketPath); err == nil {
+		conn, dialErr := net.DialTimeout("unix", socketPath, 2*time.Second)
+		if dialErr == nil {
+			conn.Close()
+			return
+		}
+	}
+
+	_ = os.Remove(lockPath)
+	_ = os.Remove(socketPath)
 }
 
 // ---------------------------------------------------------------------------

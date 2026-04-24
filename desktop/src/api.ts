@@ -136,6 +136,113 @@ export function streamSSE(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 12: session budgets + task runner
+// ---------------------------------------------------------------------------
+
+export interface SessionBudget {
+  session_id: string;
+  cost_cap_usd: number;
+}
+
+export function setSessionBudget(
+  sessionId: string,
+  costCapUsd: number,
+): Promise<SessionBudget> {
+  return fetchJSON<SessionBudget>(`/v1/sessions/${sessionId}/budget`, {
+    method: "PUT",
+    body: JSON.stringify({ cost_cap_usd: costCapUsd }),
+  });
+}
+
+export type TaskStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "zombie"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export interface Task {
+  id: string;
+  plan_json?: string;
+  status: TaskStatus;
+  session_id: string;
+  created_at: number;
+  last_heartbeat_at?: number;
+  next_plan_step_index: number;
+  token_budget_cap: number;
+  cost_cap_usd: number;
+}
+
+export type TaskEventKind =
+  | "tool_call"
+  | "approval"
+  | "journal_receipt"
+  | "artifact"
+  | "cost"
+  | "error"
+  | "heartbeat"
+  | "step_completed";
+
+export interface TaskEvent {
+  id: number;
+  task_id: string;
+  step_id: string;
+  attempt: number;
+  sequence: number;
+  kind: TaskEventKind;
+  payload_json?: string;
+  created_at: number;
+}
+
+export function createTask(
+  sessionId: string,
+  planJson?: string,
+  costCapUsd?: number,
+): Promise<Task> {
+  return fetchJSON<Task>("/v1/tasks", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: sessionId,
+      plan_json: planJson ?? "",
+      cost_cap_usd: costCapUsd ?? 0,
+    }),
+  });
+}
+
+export function listTasks(sessionId?: string): Promise<Task[]> {
+  const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  return fetchJSON<Task[]>(`/v1/tasks${qs}`);
+}
+
+export function getTask(id: string): Promise<Task> {
+  return fetchJSON<Task>(`/v1/tasks/${id}`);
+}
+
+export function getTaskEvents(taskId: string): Promise<TaskEvent[]> {
+  return fetchJSON<TaskEvent[]>(`/v1/tasks/${taskId}/events`);
+}
+
+export function pauseTask(id: string): Promise<{ status: string }> {
+  return fetchJSON<{ status: string }>(`/v1/tasks/${id}/pause`, {
+    method: "POST",
+  });
+}
+
+export function resumeTask(id: string): Promise<{ status: string }> {
+  return fetchJSON<{ status: string }>(`/v1/tasks/${id}/resume`, {
+    method: "POST",
+  });
+}
+
+export function cancelTask(id: string): Promise<{ status: string }> {
+  return fetchJSON<{ status: string }>(`/v1/tasks/${id}/cancel`, {
+    method: "POST",
+  });
+}
+
+// ---------------------------------------------------------------------------
 // M4 W2: office engine + migration + bundle info + persistence alert bus
 // ---------------------------------------------------------------------------
 //

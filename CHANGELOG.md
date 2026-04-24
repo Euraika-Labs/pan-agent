@@ -7,17 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Post-0.4.4 stabilisation on `main`. No version bump yet — the next cut
-is targeted at 0.5.0, once Phase 12 WS2 is wired into tool execution
-(see `docs/design/phase12.md`). Entries below describe what has landed
-since the 0.4.4 tag.
+## [0.5.0] - 2026-04-24
+
+Phase 12 "Trust-First Desktop Automation" — Go backend implementation
+spanning workstreams 1–4. Desktop frontend components (React/Tauri
+screens, macOS permission wizard) ship separately.
 
 ### Added
+- **Browser profile plumbing** (`internal/tools/browser.go`,
+  `internal/paths/paths.go`) — `paths.BrowserProfile()` returns a
+  stable `<DataDir>/browser-profile/` directory. `acquirePage()` now
+  uses `rod.Launcher.UserDataDir()` with the stable path, deletes
+  rod's default `--password-store` and `--use-mock-keychain` flags,
+  and sets `--disable-extensions` + `--disable-component-update`.
+  `cleanSingletonLock()` probes the `SingletonSocket` via Unix dial
+  before removing a stale lock. `CloseBrowser()` exported and wired
+  into the server shutdown path.
+- **Per-session cost budgets** (`internal/storage/`, `internal/gateway/`) —
+  4 new columns on `sessions` table (`token_budget_used`,
+  `token_budget_cap`, `cost_used_usd`, `cost_cap_usd`) with crash-safe
+  idempotent migration. SSE chat loop enforces budgets: `budget.warning`
+  at 80%, `budget.exceeded` at 100% (pauses, does not terminate).
+  `PUT /v1/sessions/{id}/budget` sets the cap; returns 404 on missing
+  session.
+- **Interact tool** (`internal/tools/interact/`) — single LLM-facing
+  `interact` tool with internal router selecting `direct_api` →
+  `vision` fallback. `safeAppName` regex prevents command injection
+  from LLM-supplied app names. Platform-split `exec.CommandContext`
+  calls pass app as separate argv (no shell interpolation). Windows
+  path uses PowerShell `$args[0]` pattern. Added to `gatedTools` for
+  approval enforcement.
+- **Durable task runner** (`internal/taskrunner/`) — `tasks` and
+  `task_events` tables with CAS status transitions, heartbeat-based
+  zombie detection (catches both stale and never-heartbeated tasks),
+  step memoization via `(task_id, step_id, kind, attempt)` uniqueness.
+  Reaper goroutine at 10s cadence / 60s stale threshold. 7 REST
+  endpoints: `POST/GET /v1/tasks`, `GET /v1/tasks/{id}`,
+  `GET /v1/tasks/{id}/events`, `POST /v1/tasks/{id}/{pause,resume,cancel}`.
+  `tasks.session_id` has FK constraint to `sessions(id)`.
+- **OpenAPI spec** — 8 new endpoints documented (budget + 7 task
+  endpoints). `Task`, `TaskEvent` schemas added. SSE event types
+  extended with `budget.warning` and `budget.exceeded`. Route count:
+  63 total, 20 documented, 43 exempt.
 - **`AGENTS.md`** — repository contributor guide (project layout,
   commands, style, testing, commit conventions, security rules) now
   tracked in the repo.
 
 ### Changed
+- **`docs/design/phase12.md`** — resolved all five Define-phase open
+  questions (2026-04-24). Added decisions **D6–D10** to the Decisions
+  table and rewrote the "Open questions still owed a decision" section
+  as a resolved-questions pointer. v0.5.0 kickoff is no longer blocked
+  on unanswered design decisions.
+  - **D6** (schema migration for v0.3.x users) — **fresh DB**; no
+    automated migration. Phase 12 introduces `action_receipts`,
+    `tasks`, `task_events`, `task_budgets`, HMAC-redacted columns and
+    WAL; a faithful migration would land unredacted pre-existing rows
+    and snapshot-less receipts in the new store, defeating D2's
+    forensic model. Clean cutover; users keep their old binary
+    side-by-side if they need pre-migration data.
+  - **D7** (keyring rotation recovery) — **prompt for export before
+    rotation**; never silent reset. On keyring decrypt failure at
+    startup, pan-agent refuses to unlock the profile and offers an
+    "export encrypted bundle with old password" path plus an explicit
+    "start fresh" confirmation.
+  - **D8** (CoW fallback on ExFAT / network volumes) — **block the
+    task runner entirely** on non-CoW workspace volumes. Setup wizard
+    uses the D4 capability probe to detect the workspace FS; on
+    tier-2/audit-only demotion, the durable runner (WS#4) refuses to
+    start. Chat + one-shot tool calls still work. Per-action
+    receipt-lane downgrade was considered and rejected as making
+    reliability depend on invisible filesystem layout.
+  - **D9** (redaction false-positive unmask affordance) — **"reveal
+    original" in receipt detail**, gated by re-auth and suppressed in
+    screen-share / recording contexts. Original value is co-located
+    with the HMAC in `action_receipts`, so reveal belongs there; the
+    re-auth + screen-share suppression is what keeps the affordance
+    from becoming the leak channel redaction was meant to close.
+  - **D10** (MDM-managed macOS scope) — **not supported**. No MDM
+    profile introspection, no TCC-under-MDM special-casing, no
+    diagnostics-export of MDM state. Setup wizard detects MDM
+    presence and surfaces an unsupported-environment banner. The
+    related risk-register line is rewritten from "Accept for v0.5.0"
+    to "Out of scope (D10)".
 - **`CLAUDE.md`** refreshed for v0.4.4 + Phase 12 foundation. Corrects
   the Go toolchain reference (1.25.7), the live route count (56 via
   `scripts/verify-api.sh`), and adds source-verified descriptions for
@@ -421,6 +493,8 @@ Phase 11 — self-healing skill system, full feature-parity with hermes-agent's 
 - Tauri v2 + React 19 desktop app with 14 screens
 - GitLab CI + GitHub Actions build pipeline
 
+[0.5.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.4.4...v0.5.0
+[0.4.4]: https://github.com/Euraika-Labs/pan-agent/compare/v0.4.3...v0.4.4
 [0.4.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/Euraika-Labs/pan-agent/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.2.0...v0.3.0

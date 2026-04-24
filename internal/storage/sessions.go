@@ -12,7 +12,8 @@ import (
 // ListSessions returns sessions ordered newest-first, with pagination.
 func (d *DB) ListSessions(limit, offset int) ([]Session, error) {
 	const q = `
-SELECT id, source, started_at, ended_at, message_count, model, title
+SELECT id, source, started_at, ended_at, message_count, model, title,
+       token_budget_used, token_budget_cap, cost_used_usd, cost_cap_usd
 FROM sessions
 ORDER BY started_at DESC
 LIMIT ? OFFSET ?`
@@ -30,6 +31,8 @@ LIMIT ? OFFSET ?`
 		if err := rows.Scan(
 			&s.ID, &s.Source, &s.StartedAt, &s.EndedAt,
 			&s.MessageCount, &model, &title,
+			&s.TokenBudgetUsed, &s.TokenBudgetCap,
+			&s.CostUsedUSD, &s.CostCapUSD,
 		); err != nil {
 			return nil, fmt.Errorf("ListSessions scan: %w", err)
 		}
@@ -228,6 +231,50 @@ func (d *DB) CountMessages() (int, error) {
 		return 0, fmt.Errorf("CountMessages: %w", err)
 	}
 	return n, nil
+}
+
+// GetSessionBudget returns the budget fields for a single session.
+func (d *DB) GetSessionBudget(sessionID string) (costUsed, costCap float64, err error) {
+	err = d.db.QueryRow(
+		`SELECT cost_used_usd, cost_cap_usd FROM sessions WHERE id = ?`,
+		sessionID,
+	).Scan(&costUsed, &costCap)
+	if err != nil {
+		err = fmt.Errorf("GetSessionBudget: %w", err)
+	}
+	return
+}
+
+// AddSessionCost atomically increments cost_used_usd and token_budget_used.
+func (d *DB) AddSessionCost(sessionID string, costDelta float64, tokenDelta int) error {
+	_, err := d.db.Exec(
+		`UPDATE sessions
+		 SET cost_used_usd = cost_used_usd + ?,
+		     token_budget_used = token_budget_used + ?
+		 WHERE id = ?`,
+		costDelta, tokenDelta, sessionID,
+	)
+	if err != nil {
+		return fmt.Errorf("AddSessionCost: %w", err)
+	}
+	return nil
+}
+
+// SetSessionBudgetCap sets the cost cap for a session.
+// Returns an error if the session does not exist.
+func (d *DB) SetSessionBudgetCap(sessionID string, costCap float64) error {
+	res, err := d.db.Exec(
+		`UPDATE sessions SET cost_cap_usd = ? WHERE id = ?`,
+		costCap, sessionID,
+	)
+	if err != nil {
+		return fmt.Errorf("SetSessionBudgetCap: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("SetSessionBudgetCap: session %q not found", sessionID)
+	}
+	return nil
 }
 
 // Each whitespace-delimited word is double-quoted (stripping any embedded

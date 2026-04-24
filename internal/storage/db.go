@@ -57,6 +57,10 @@ func Open(dbPath string) (*DB, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("storage.Open migrateMessagesFTS: %w", err)
 	}
+	if err := d.migrateSessionBudget(); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("storage.Open migrateSessionBudget: %w", err)
+	}
 	return d, nil
 }
 
@@ -228,6 +232,36 @@ func (d *DB) migrateOfficeContentHash() error {
 	return err
 }
 
+// migrateSessionBudget adds per-session cost budget columns (v0.5.0).
+// Each column is probed individually so a partial-failure (crash between
+// ALTER statements) recovers cleanly on the next open.
+func (d *DB) migrateSessionBudget() error {
+	cols := []struct {
+		name string
+		ddl  string
+	}{
+		{"token_budget_used", `ALTER TABLE sessions ADD COLUMN token_budget_used INTEGER DEFAULT 0`},
+		{"token_budget_cap", `ALTER TABLE sessions ADD COLUMN token_budget_cap  INTEGER DEFAULT 0`},
+		{"cost_used_usd", `ALTER TABLE sessions ADD COLUMN cost_used_usd     REAL    DEFAULT 0`},
+		{"cost_cap_usd", `ALTER TABLE sessions ADD COLUMN cost_cap_usd      REAL    DEFAULT 0`},
+	}
+	for _, c := range cols {
+		var n int
+		if err := d.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name=?`, c.name,
+		).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		if _, err := d.db.Exec(c.ddl); err != nil {
+			return fmt.Errorf("migrateSessionBudget(%s): %w", c.name, err)
+		}
+	}
+	return nil
+}
+
 // Close releases the underlying database connection.
 func (d *DB) Close() error {
 	return d.db.Close()
@@ -248,13 +282,17 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id            TEXT    PRIMARY KEY,
-    source        TEXT    DEFAULT 'pan-agent',
-    started_at    INTEGER NOT NULL,
-    ended_at      INTEGER,
-    message_count INTEGER DEFAULT 0,
-    model         TEXT,
-    title         TEXT
+    id                TEXT    PRIMARY KEY,
+    source            TEXT    DEFAULT 'pan-agent',
+    started_at        INTEGER NOT NULL,
+    ended_at          INTEGER,
+    message_count     INTEGER DEFAULT 0,
+    model             TEXT,
+    title             TEXT,
+    token_budget_used INTEGER DEFAULT 0,
+    token_budget_cap  INTEGER DEFAULT 0,
+    cost_used_usd     REAL    DEFAULT 0,
+    cost_cap_usd      REAL    DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -343,6 +381,38 @@ CREATE TABLE IF NOT EXISTS office_audit (
     result        TEXT
 );
 CREATE INDEX IF NOT EXISTS office_audit_ts_idx ON office_audit(ts DESC);
+
+-- ---------------------------------------------------------------------------
+-- Phase 12 WS#4 — durable task runner
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tasks (
+    id                   TEXT    PRIMARY KEY,
+    plan_json            TEXT,
+    status               TEXT    NOT NULL DEFAULT 'queued',
+    session_id           TEXT    NOT NULL REFERENCES sessions(id),
+    created_at           INTEGER NOT NULL,
+    last_heartbeat_at    INTEGER,
+    next_plan_step_index INTEGER DEFAULT 0,
+    token_budget_cap     INTEGER DEFAULT 0,
+    cost_cap_usd         REAL    DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_session_created
+    ON tasks(session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS task_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id      TEXT    NOT NULL,
+    step_id      TEXT    NOT NULL,
+    attempt      INTEGER NOT NULL DEFAULT 1,
+    sequence     INTEGER NOT NULL,
+    kind         TEXT    NOT NULL,
+    payload_json TEXT,
+    created_at   INTEGER NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    UNIQUE (task_id, step_id, kind, attempt)
+);
+CREATE INDEX IF NOT EXISTS idx_task_events_task_seq
+    ON task_events(task_id, sequence);
 
 -- ---------------------------------------------------------------------------
 -- Phase 12 WS#2 — action_receipts (append-only action journal)

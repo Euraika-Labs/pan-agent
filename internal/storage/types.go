@@ -8,13 +8,17 @@ package storage
 // as undefined — the root cause of the "undefined session card" and missing
 // React key warnings seen pre-audit.
 type Session struct {
-	ID           string `json:"id"`
-	Source       string `json:"source"`
-	StartedAt    int64  `json:"startedAt"`
-	EndedAt      *int64 `json:"endedAt,omitempty"`
-	MessageCount int    `json:"messageCount"`
-	Model        string `json:"model"`
-	Title        string `json:"title"`
+	ID              string  `json:"id"`
+	Source          string  `json:"source"`
+	StartedAt       int64   `json:"startedAt"`
+	EndedAt         *int64  `json:"endedAt,omitempty"`
+	MessageCount    int     `json:"messageCount"`
+	Model           string  `json:"model"`
+	Title           string  `json:"title"`
+	TokenBudgetUsed int     `json:"tokenBudgetUsed"`
+	TokenBudgetCap  int     `json:"tokenBudgetCap"`
+	CostUsedUSD     float64 `json:"costUsedUsd"`
+	CostCapUSD      float64 `json:"costCapUsd"`
 }
 
 // Message represents a single message within a session.

@@ -248,6 +248,15 @@ func CacheDir() string {
 	return dir
 }
 
+// BrowserProfile returns the path to the Chromium user-data directory
+// used by the browser automation tool. Ephemeral in v0.4.5 (cleared on
+// agent exit); persistent from v0.5.0 onward.
+func BrowserProfile() string {
+	dir := filepath.Join(dataDir(), "browser-profile")
+	mustMkdir(dir)
+	return dir
+}
+
 // Claw3dDir returns the path to the pan-office / Claw3D directory.
 func Claw3dDir() string {
 	dir := filepath.Join(AgentHome(), "pan-office")

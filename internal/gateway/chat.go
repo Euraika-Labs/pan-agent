@@ -41,7 +41,8 @@ type chatRequest struct {
 // sseEvent is a single server-sent event.
 type sseEvent struct {
 	// Type is one of: "chunk", "tool_call", "approval_required",
-	// "tool_result", "usage", "error", "done".
+	// "tool_result", "usage", "budget.warning", "budget.exceeded",
+	// "error", "done".
 	Type string `json:"type"`
 
 	// chunk
@@ -62,6 +63,10 @@ type sseEvent struct {
 
 	// usage
 	Usage *llm.Usage `json:"usage,omitempty"`
+
+	// budget.warning / budget.exceeded
+	CostUsed float64 `json:"cost_used,omitempty"`
+	CostCap  float64 `json:"cost_cap,omitempty"`
 
 	// done
 	SessionID string `json:"session_id,omitempty"`
@@ -224,8 +229,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// ============================================================ agent loop
 	const maxTurns = 20 // safety cap to prevent runaway loops
+	budgetWarned := false
 
 	for turn := 0; turn < maxTurns; turn++ {
+		// ---------------------------------------------- budget gate
+		if costCap := s.sessionCostCap(sessionID); costCap > 0 {
+			costUsed, _, _ := s.db.GetSessionBudget(sessionID)
+			if costUsed >= costCap {
+				sendSSE(w, sseEvent{
+					Type: "budget.exceeded", CostUsed: costUsed, CostCap: costCap,
+				})
+				break
+			}
+		}
+
 		// --------------------------------------------------- call LLM
 		ch, err := client.ChatStream(ctx, msgs, req.Tools)
 		if err != nil {
@@ -256,6 +273,19 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 			case "usage":
 				sendSSE(w, sseEvent{Type: "usage", Usage: ev.Usage})
+				if ev.Usage != nil {
+					costDelta := estimateCostUSD(ev.Usage)
+					_ = s.db.AddSessionCost(sessionID, costDelta, ev.Usage.TotalTokens)
+					if costCap := s.sessionCostCap(sessionID); costCap > 0 && !budgetWarned {
+						costUsed, _, _ := s.db.GetSessionBudget(sessionID)
+						if costUsed >= costCap*0.8 {
+							sendSSE(w, sseEvent{
+								Type: "budget.warning", CostUsed: costUsed, CostCap: costCap,
+							})
+							budgetWarned = true
+						}
+					}
+				}
 
 			case "done":
 				gotDone = true
@@ -374,6 +404,7 @@ var gatedTools = map[string]bool{
 	"filesystem":     true,
 	"code_execution": true,
 	"browser":        true,
+	"interact":       true,
 }
 
 // executeToolCall dispatches a single tool call and returns the result string.
@@ -677,4 +708,25 @@ func extractSkillIDFromCall(tc llm.ToolCall) string {
 		return ""
 	}
 	return args.Name
+}
+
+// sessionCostCap returns the cost cap for a session, or 0 if no cap is set.
+func (s *Server) sessionCostCap(sessionID string) float64 {
+	_, cap, err := s.db.GetSessionBudget(sessionID)
+	if err != nil {
+		return 0
+	}
+	return cap
+}
+
+// estimateCostUSD approximates the USD cost from token usage. This is a
+// rough estimate using GPT-4o-class pricing ($2.50/1M input, $10/1M output).
+// Refined in v0.6.0 when per-model pricing lands.
+func estimateCostUSD(u *llm.Usage) float64 {
+	if u == nil {
+		return 0
+	}
+	inputCost := float64(u.PromptTokens) * 2.50 / 1_000_000
+	outputCost := float64(u.CompletionTokens) * 10.00 / 1_000_000
+	return inputCost + outputCost
 }

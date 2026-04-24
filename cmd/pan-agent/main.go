@@ -32,6 +32,8 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/parentwatch"
 	"github.com/euraika-labs/pan-agent/internal/paths"
 	"github.com/euraika-labs/pan-agent/internal/storage"
+	"github.com/euraika-labs/pan-agent/internal/taskrunner"
+	"github.com/euraika-labs/pan-agent/internal/tools"
 	"github.com/euraika-labs/pan-agent/internal/version"
 )
 
@@ -128,6 +130,13 @@ func cmdServe(args []string) error {
 	// through the chat completions endpoint via the bearer-auth token.
 	schedCtx, cancelSched := context.WithCancel(context.Background())
 	defer cancelSched()
+	// Start the task reaper. It scans for zombie tasks every 10s.
+	reaperCtx, cancelReaper := context.WithCancel(context.Background())
+	defer cancelReaper()
+	taskStore := taskrunner.NewStore(db.RawDB())
+	reaper := taskrunner.NewReaper(taskStore)
+	go reaper.Run(reaperCtx)
+
 	scheduler := cron.NewScheduler(func(ctx context.Context, j cron.Job) error {
 		fmt.Printf("[cron] fire job id=%s name=%q schedule=%q\n", j.ID, j.Name, j.Schedule)
 		// TODO(#cron-exec): dispatch j.Prompt via the gateway's chat
@@ -148,6 +157,7 @@ func cmdServe(args []string) error {
 	select {
 	case sig := <-quit:
 		fmt.Printf("\npan-agent: received %s, shutting down...\n", sig)
+		tools.CloseBrowser()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Stop(ctx)

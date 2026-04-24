@@ -1,14 +1,14 @@
 openapi: 3.1.0
 info:
   title: Pan-Agent HTTP API
-  version: 0.4.4
+  version: 0.5.0
   description: |
     Localhost-first REST + Server-Sent-Events API served by the Pan-Agent
     Go backend (default: `http://127.0.0.1:8642`). The Tauri desktop is
     one client — any HTTP client can drive the same endpoints.
 
     **Scope of this document:** this is a live, incomplete specification.
-    The backend has ~60 registered routes in
+    The backend has ~63 registered routes in
     `internal/gateway/routes.go`; this file documents the shape of the
     unified error envelope, the core chat / approvals / sessions / config
     flows, and acts as the reference for new endpoints.
@@ -75,6 +75,41 @@ components:
         message_count: { type: integer }
         model: { type: string }
         title: { type: string }
+        tokenBudgetUsed: { type: integer, default: 0 }
+        tokenBudgetCap: { type: integer, default: 0 }
+        costUsedUsd: { type: number, format: double, default: 0 }
+        costCapUsd: { type: number, format: double, default: 0 }
+
+    Task:
+      type: object
+      required: [id, status, session_id, created_at]
+      properties:
+        id: { type: string }
+        plan_json: { type: string }
+        status:
+          type: string
+          enum: [queued, running, paused, zombie, succeeded, failed, cancelled]
+        session_id: { type: string }
+        created_at: { type: integer, format: int64 }
+        last_heartbeat_at: { type: integer, format: int64, nullable: true }
+        next_plan_step_index: { type: integer, default: 0 }
+        token_budget_cap: { type: integer, default: 0 }
+        cost_cap_usd: { type: number, format: double, default: 0 }
+
+    TaskEvent:
+      type: object
+      required: [id, task_id, step_id, attempt, sequence, kind, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        task_id: { type: string }
+        step_id: { type: string }
+        attempt: { type: integer }
+        sequence: { type: integer }
+        kind:
+          type: string
+          enum: [tool_call, approval, journal_receipt, artifact, cost, error, heartbeat, step_completed]
+        payload_json: { type: string }
+        created_at: { type: integer, format: int64 }
 
     Message:
       type: object
@@ -116,7 +151,7 @@ components:
       properties:
         type:
           type: string
-          enum: [chunk, tool_call, approval_required, tool_result, usage, error, done]
+          enum: [chunk, tool_call, approval_required, tool_result, usage, budget.warning, budget.exceeded, error, done]
         content: { type: string }
         tool_call: { type: object, additionalProperties: true }
         approval_id: { type: string }
@@ -404,6 +439,176 @@ paths:
           content:
             application/yaml: {}
             text/yaml: {}
+
+  /v1/sessions/{id}/budget:
+    put:
+      summary: Set the cost cap for a session
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cost_cap_usd]
+              properties:
+                cost_cap_usd:
+                  type: number
+                  format: double
+                  minimum: 0
+                  description: Maximum cost in USD for this session. 0 disables the cap.
+      responses:
+        "200":
+          description: Budget cap applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id: { type: string }
+                  cost_cap_usd: { type: number, format: double }
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tasks:
+    post:
+      summary: Create a new task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id]
+              properties:
+                session_id: { type: string }
+                plan_json: { type: string }
+                cost_cap_usd: { type: number, format: double, default: 0 }
+      responses:
+        "201":
+          description: Task created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/Error"
+    get:
+      summary: List tasks
+      parameters:
+        - in: query
+          name: session_id
+          schema: { type: string }
+          description: Filter by session. Omit for all tasks.
+      responses:
+        "200":
+          description: Tasks, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Task" }
+
+  /v1/tasks/{id}:
+    get:
+      summary: Get a task by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Task details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/tasks/{id}/events:
+    get:
+      summary: List events for a task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Events ordered by sequence
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TaskEvent" }
+
+  /v1/tasks/{id}/pause:
+    post:
+      summary: Pause a running task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Task paused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: paused }
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /v1/tasks/{id}/resume:
+    post:
+      summary: Resume a paused task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Task re-queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: queued }
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /v1/tasks/{id}/cancel:
+    post:
+      summary: Cancel a task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Task cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: cancelled }
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
 
   /v1/recovery/list:
     get:

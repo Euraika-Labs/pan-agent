@@ -84,6 +84,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// --------------------------------------------------------------- sessions
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionList)
 	mux.HandleFunc("GET /v1/sessions/{id}", s.handleSessionGet)
+	mux.HandleFunc("PUT /v1/sessions/{id}/budget", s.handleSessionBudget)
 
 	// ----------------------------------------------------------------- models
 	mux.HandleFunc("GET /v1/models", s.handleModelList)
@@ -143,6 +144,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/cron", s.handleCronList)
 	mux.HandleFunc("POST /v1/cron", s.handleCronCreate)
 	mux.HandleFunc("DELETE /v1/cron/{id}", s.handleCronDelete)
+
+	// ----------------------------------------------------------------- tasks
+	// Durable task runner (Phase 12 WS#4).
+	mux.HandleFunc("POST /v1/tasks", s.handleTaskCreate)
+	mux.HandleFunc("GET /v1/tasks", s.handleTaskList)
+	mux.HandleFunc("GET /v1/tasks/{id}", s.handleTaskGet)
+	mux.HandleFunc("GET /v1/tasks/{id}/events", s.handleTaskEvents)
+	mux.HandleFunc("POST /v1/tasks/{id}/pause", s.handleTaskPause)
+	mux.HandleFunc("POST /v1/tasks/{id}/resume", s.handleTaskResume)
+	mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.handleTaskCancel)
 
 	// --------------------------------------------------------------- recovery
 	// Action journal + rollback surface (Phase 12 WS#2).
@@ -287,6 +298,35 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 		msgs = []storage.Message{}
 	}
 	writeJSON(w, http.StatusOK, msgs)
+}
+
+// handleSessionBudget sets the cost cap for a session.
+// Body: {"cost_cap_usd": 5.0}
+func (s *Server) handleSessionBudget(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		CostCapUSD float64 `json:"cost_cap_usd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.CostCapUSD < 0 {
+		writeError(w, http.StatusBadRequest, "cost_cap_usd must be >= 0")
+		return
+	}
+	if err := s.db.SetSessionBudgetCap(id, body.CostCapUSD); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session_id":   id,
+		"cost_cap_usd": body.CostCapUSD,
+	})
 }
 
 // =============================================================================

@@ -1,6 +1,6 @@
 # Phase 12 — Trust-First Desktop Automation
 
-**Status**: PROPOSED — v3 incorporates multi-provider Deliver-phase corrections (2026-04-17)
+**Status**: IN PROGRESS — Go backend for WS#1–4 implemented (2026-04-24); desktop frontend + WS#5 pending
 **Prior phase**: Phase 11 (self-healing skill system) shipped in v0.3.1
 **Stabilization track since 0.3.1**: v0.4.0 (Claw3D embed), v0.4.1 (sidecar spawn hotfix), v0.4.2-0.4.4 (security hardening)
 
@@ -240,12 +240,12 @@ Not a feature. A bounce fix. Every macOS user hits a 3-prompt wall (Accessibilit
 
 | Release | Contents | Target |
 |---|---|---|
-| **v0.4.5** (hotfix) | `rod.Launcher.UserDataDir()` plumbing with **ephemeral-only profile** — profile is cleared on agent exit. No persistent auth, no keyring, no extension flags yet. Scoped explicitly to prove the plumbing without shipping the trust-ceiling problem the round-3 debate rejected (C4). | Immediate |
-| **v0.5.0** | WS#1 full (persistent profile + keyring verification + extension flags + SingletonLock + 80/100 budget UX) + WS#5 full (TCC detection without TCC.db + 1s polling + block-until-granted) + DB migration harness + WAL mode baseline | ~1.5 weeks after start |
-| **v0.6.0** | WS#2 full (action journal + capability-probed tiered CoW + `internal/secret` HMAC redaction + Presidio classifiers + SaaS deep-links + two-lane History UI) | ~4 weeks after v0.5.0 |
+| **v0.4.5** (hotfix) | `rod.Launcher.UserDataDir()` plumbing with **ephemeral-only profile** — profile is cleared on agent exit. No persistent auth, no keyring, no extension flags yet. Scoped explicitly to prove the plumbing without shipping the trust-ceiling problem the round-3 debate rejected (C4). | **Done** (2026-04-24) — merged into v0.5.0 |
+| **v0.5.0** | WS#1 full (persistent profile + keyring verification + extension flags + SingletonLock + 80/100 budget UX) + WS#5 full (TCC detection without TCC.db + 1s polling + block-until-granted) + DB migration harness + WAL mode baseline | **Go backend done** (2026-04-24). Pending: desktop cost pill UI, macOS permission wizard (WS#5 — requires Rust + macOS) |
+| **v0.6.0** | WS#2 full (action journal + capability-probed tiered CoW + `internal/secret` HMAC redaction + Presidio classifiers + SaaS deep-links + two-lane History UI) | **Done** (pre-existing — `internal/recovery/` + `internal/secret/` landed in v0.4.2–v0.4.4). Pending: two-lane History desktop UI |
 | **BUFFER** | 1-week float for WS#2 overrun risk (I6). WS#2 is the critical path — tiered CoW capability probing, redaction, and two-lane UI are all platform-specific engineering. If WS#2 ships on time, use the buffer to start WS#3 early; if it overruns, WS#7 and WS#8 slip together rather than silently compressing. | 1 week |
-| **v0.7.0** | WS#3 (vision w/ ARIA-YAML + single canonical `interact` tool + confidence-scored internal router + direct-API cookbook skills) | ~1 week after buffer |
-| **v0.8.0** | WS#4 (task runner + C3-hardened reaper + step memoization + pause-not-terminate budgets + Tasks UI) | ~3 weeks after v0.7.0 |
+| **v0.7.0** | WS#3 (vision w/ ARIA-YAML + single canonical `interact` tool + confidence-scored internal router + direct-API cookbook skills) | **Go backend done** (2026-04-24). Pending: ARIA-YAML accessibility layer, direct-API cookbook skills, provider computer_use passthrough |
+| **v0.8.0** | WS#4 (task runner + C3-hardened reaper + step memoization + pause-not-terminate budgets + Tasks UI) | **Go backend done** (2026-04-24). Pending: Tasks desktop UI, cron→task migration, actual task execution engine |
 
 **Total Phase 12 runway: ~10.5-11 weeks elapsed** (was 8 in v1, 9.5-10 in v2). Delta from v2 is the explicit 1-week buffer between WS#2 and WS#3 (critical-path protection).
 
@@ -277,6 +277,11 @@ Not a feature. A bounce fix. Every macOS user hits a 3-prompt wall (Accessibilit
 | **D3** | Direct-API cookbook scope for workstream #3 | **Ship ~20 curated scripts as first-class skills; let LLM extend for edge cases** | LLM synthesis of AppleScript is unreliable. Shipping the 80% path deterministically with a curated set gives reference material the Phase 11 reviewer/curator refines. |
 | **D4** | Snapshot strategy for reversible actions | **Tiered CoW with runtime capability probing**: `cp -c` (macOS APFS) or `cp --reflink=always` (Linux btrfs/xfs/bcachefs) when probe succeeds; plain `os.CopyFS` with 50MB/500-file cap otherwise; audit-only above cap or for cross-device / RO-snapshot / non-CoW volumes | Plain `os.CopyFS` on large workspaces is unusably slow. Native CoW is O(1) on supported filesystems, but OS name doesn't predict support (APFS-over-SMB, btrfs RO snapshots both fail). Capability probe cached by `(device_id, mount_id)` is the honest path. Shell-out to `cp` avoids CGo. |
 | **D5** | Secret masking | **HMAC-SHA256 deterministic masking in `internal/secret/` applied to `action_receipts.redacted_payload`, `tasks.plan_json`, AND `task_events.payload_json`; Presidio-compatible regex for detection; per-profile key stored via platform keyring** | Masking only receipts leaves a secondary leak in task-runner storage (I1). Deterministic hash preserves correlation without exposing values. Keyring dispatch stays pure-Go via `wincred` / `security` CLI / dbus. |
+| **D6** | Schema migration for existing v0.3.x users | **Fresh DB** — v0.5.0 starts users on a new SQLite schema; no automated migration from v0.3.x is attempted | Phase 12 adds `action_receipts`, `tasks`, `task_events`, `task_budgets`, HMAC-redacted columns and WAL. A faithful automated migration has to reason about pre-existing session/message rows that were never redacted and snapshot-less receipts that never existed — all of which would land in the new store as "unknown-provenance" data that defeats the forensic model D2 rests on. A clean cutover is honest; users keep their old v0.3.x binary side-by-side if they need pre-migration data. No migration harness to build, no partial-state edge cases to debug. |
+| **D7** | Keychain/Keyring rotation recovery | **Prompt for export before rotation** — when keyring decryption fails at startup (post-password-reset), pan-agent refuses to unlock the profile, offers "export encrypted bundle with old password" (if still known) and "start fresh", and never silently resets | Silent data loss is not acceptable (the open question explicitly rules it out). A blocking export prompt preserves user agency: if they have the old password in a password manager they can recover; if not, they pick "start fresh" consciously. Ephemeral-mode auto-fallback would hide the failure and lose the browser session. |
+| **D8** | CoW fallback on ExFAT / network volumes | **Block the task runner entirely on non-CoW workspace volumes** — Setup wizard detects the workspace FS via the D4 capability probe, and if the probe demotes to tier 2 or audit-only, pan-agent refuses to start the task runner and surfaces a "move your workspace to a CoW-capable volume" remediation | The task runner (WS#4) assumes step-level reversibility. A workspace where every action degrades to audit-only turns the runner into an unlogged automation, which is the exact failure mode Phase 12 exists to prevent. Chat + one-shot tool calls still work — only the durable runner is gated. Per-action receipt-lane downgrade was considered and rejected: it makes reliability depend on filesystem layout the user doesn't see. |
+| **D9** | Redaction false-positive unmask affordance | **"Reveal original" in receipt detail, gated by a re-auth prompt and suppressed in screen-share / recording contexts** | Legitimate content masked as a secret is a real UX problem (a hex string that looks like an API key, a license plate matching a Presidio pattern). Receipt-detail is the only place the original value is recoverable (it's stored next to the HMAC in `action_receipts`), so the reveal button belongs there. The re-auth + screen-share suppression is what keeps the affordance from becoming the leak channel the redaction was meant to close. |
+| **D10** | MDM-managed macOS scope | **Not supported** — pan-agent does not target MDM-managed macOS devices. No MDM profile introspection, no TCC-under-MDM special-casing, no diagnostics-export of MDM state | Corporate MDM introduces per-organisation policy variance that pan-agent can't test against and can't fix when a profile blocks Accessibility/Screen Recording. Scoping it out lets WS#5 (macOS permission wizard) target the common case cleanly. The Setup wizard will detect MDM presence and display an unsupported-environment banner rather than silently failing. |
 
 ## Risk-acceptance register
 
@@ -289,19 +294,20 @@ Risks explicitly NOT addressed in Phase 12, with justification:
 | **Exhaustive SaaS deep-link library** | **Partial — cover Gmail/Stripe/Google Calendar in v0.6.0** | Uncovered services show raw payload inspection + "no undo link available" rather than a broken link. |
 | **Service worker persistence after agent exit** | **Mitigate + accept residual** | `--disable-background-networking` stops most SW background work. Going further breaks legitimate SPAs. Does NOT persist across Chromium restart. |
 | **Secrets in LLM prompt history** | **Phase 13** | HMAC masking covers all storage paths (receipts + task_events + plan_json) as of D5. Pre-provider prompt sanitization is separate pipeline work. |
-| **Corporate MDM full profile introspection** | **Accept for v0.5.0** | Basic granted/not-granted detection via public APIs lands. MDM pre-block classification is best-effort via diagnostics export only. |
+| **Corporate MDM full profile introspection** | **Out of scope (D10)** | MDM-managed macOS is not a supported environment. Setup wizard detects MDM presence and surfaces an unsupported-environment banner; no per-MDM-policy fallback paths are built. |
 | **Live browser profile rollback** | **Accept — excluded from CoW scope (C2)** | SQLite multi-file atomicity cannot be preserved during Chromium writes. Browser-form receipts are always audit-only. |
 | **Restic/Kopia/Borg-grade content-defined dedup** | **Phase 13** | Tiered CoW + audit-only degradation is sufficient for v0.6.0. |
 
 ## Open questions still owed a decision
 
-These surfaced in Define and remain unanswered. Block v0.5.0 kickoff.
+All Define-phase open questions have been resolved (2026-04-24). v0.5.0 kickoff is unblocked on the decisions front.
 
-1. **Schema migration for existing v0.3.x users**: automated migration vs fresh DB vs opt-in export? Has a migration harness been tested against a real user DB?
-2. **Keychain/Keyring rotation recovery**: when the user resets their macOS login password, the Keychain key rotates and browser-profile encryption fails. Offer profile reset? Ephemeral mode? Prompt for export before rotation? Silent data loss is not acceptable.
-3. **CoW fallback on ExFAT / network volumes**: warn at Setup wizard if workspace is on a non-CoW filesystem? Per-action receipt-lane downgrade? Block the task runner entirely on such volumes?
-4. **Redaction false-positive unmask affordance**: users will see legitimate content masked as secrets. Provide "reveal original" in receipt detail? How does that not re-introduce leakage in screen-share contexts?
-5. **MDM-managed macOS scope**: accept v0.5.0 shipping with "basic detect + diagnostics-export for MDM" or push full support to v1.0?
+Resolved questions, with their landing decisions:
+1. Schema migration for existing v0.3.x users → **D6 (fresh DB)**
+2. Keychain/Keyring rotation recovery → **D7 (prompt for export before rotation)**
+3. CoW fallback on ExFAT / network volumes → **D8 (block the task runner on non-CoW workspace volumes)**
+4. Redaction false-positive unmask affordance → **D9 (reveal-original in receipt detail, re-auth gated, suppressed in screen-share)**
+5. MDM-managed macOS scope → **D10 (not supported)**
 
 ## Origin
 

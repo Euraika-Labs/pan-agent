@@ -2,6 +2,7 @@ package storage
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -226,6 +227,81 @@ func TestUpdateTitle(t *testing.T) {
 	}
 	if sessions[0].Title != "My Test Session" {
 		t.Errorf("Title = %q, want %q", sessions[0].Title, "My Test Session")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Budget
+// ---------------------------------------------------------------------------
+
+func TestSessionBudget(t *testing.T) {
+	db := openTestDB(t)
+
+	s, _ := db.CreateSession("model")
+
+	if err := db.SetSessionBudgetCap(s.ID, 5.0); err != nil {
+		t.Fatalf("SetSessionBudgetCap: %v", err)
+	}
+
+	if err := db.AddSessionCost(s.ID, 1.25, 500); err != nil {
+		t.Fatalf("AddSessionCost: %v", err)
+	}
+
+	costUsed, costCap, err := db.GetSessionBudget(s.ID)
+	if err != nil {
+		t.Fatalf("GetSessionBudget: %v", err)
+	}
+	if costCap != 5.0 {
+		t.Errorf("costCap = %f, want 5.0", costCap)
+	}
+	if costUsed != 1.25 {
+		t.Errorf("costUsed = %f, want 1.25", costUsed)
+	}
+
+	// Add more cost
+	if err := db.AddSessionCost(s.ID, 0.75, 300); err != nil {
+		t.Fatalf("AddSessionCost (2nd): %v", err)
+	}
+	costUsed, _, err = db.GetSessionBudget(s.ID)
+	if err != nil {
+		t.Fatalf("GetSessionBudget (2nd): %v", err)
+	}
+	if costUsed != 2.0 {
+		t.Errorf("costUsed = %f, want 2.0", costUsed)
+	}
+}
+
+func TestSessionBudgetInListSessions(t *testing.T) {
+	db := openTestDB(t)
+
+	s, _ := db.CreateSession("model")
+	_ = db.SetSessionBudgetCap(s.ID, 10.0)
+	_ = db.AddSessionCost(s.ID, 3.5, 1400)
+
+	sessions, err := db.ListSessions(10, 0)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(sessions) == 0 {
+		t.Fatal("no sessions")
+	}
+	if sessions[0].CostCapUSD != 10.0 {
+		t.Errorf("CostCapUSD = %f, want 10.0", sessions[0].CostCapUSD)
+	}
+	if sessions[0].CostUsedUSD != 3.5 {
+		t.Errorf("CostUsedUSD = %f, want 3.5", sessions[0].CostUsedUSD)
+	}
+}
+
+func TestSetSessionBudgetCap_NotFound(t *testing.T) {
+	db := openTestDB(t)
+
+	err := db.SetSessionBudgetCap("nonexistent-session-id", 5.0)
+	if err == nil {
+		t.Fatal("expected error for nonexistent session, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error = %q, want it to contain 'not found'", err.Error())
 	}
 }
 
