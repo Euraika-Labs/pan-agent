@@ -6,6 +6,8 @@ import {
   type ApprovalRequest,
   type ApprovalResponse,
 } from "../../components/ApprovalModal";
+import { CostPill } from "../../components/CostPill";
+import { BudgetBanner } from "../../components/BudgetBanner";
 import {
   Trash2 as Trash,
   Send,
@@ -20,7 +22,7 @@ import {
   Bell,
   Slash,
 } from "lucide-react";
-import { fetchJSON, streamSSE } from "../../api";
+import { fetchJSON, streamSSE, setSessionBudget } from "../../api";
 import { PROVIDERS } from "../../constants";
 
 // ── Slash Commands ──────────────────────────────────────
@@ -269,6 +271,11 @@ function Chat({
     completionTokens: number;
     totalTokens: number;
   } | null>(null);
+  const [budgetState, setBudgetState] = useState<{
+    type: "warning" | "exceeded" | null;
+    costUsed: number;
+    costCap: number;
+  }>({ type: null, costUsed: 0, costCap: 0 });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -577,6 +584,18 @@ function Chat({
           setToolProgress(null);
           setIsLoading(false);
           abortStreamRef.current = null;
+        } else if (type === "budget.warning") {
+          setBudgetState({
+            type: "warning",
+            costUsed: (evt.cost_used as number) ?? 0,
+            costCap: (evt.cost_cap as number) ?? 0,
+          });
+        } else if (type === "budget.exceeded") {
+          setBudgetState({
+            type: "exceeded",
+            costUsed: (evt.cost_used as number) ?? 0,
+            costCap: (evt.cost_cap as number) ?? 0,
+          });
         }
       },
     );
@@ -902,6 +921,7 @@ function Chat({
     setAgentSessionId(null);
     setUsage(null);
     setToolProgress(null);
+    setBudgetState({ type: null, costUsed: 0, costCap: 0 });
   }
 
   const handleApprove = useCallback(() => {
@@ -960,6 +980,12 @@ function Chat({
             >
               {usage.totalTokens.toLocaleString()} tokens
             </span>
+          )}
+          {(budgetState.costUsed > 0 || budgetState.costCap > 0) && (
+            <CostPill
+              costUsed={budgetState.costUsed}
+              costCap={budgetState.costCap}
+            />
           )}
         </div>
         <div className="chat-header-actions">
@@ -1098,6 +1124,26 @@ function Chat({
         <div ref={messagesEndRef} />
       </div>
 
+      <BudgetBanner
+        type={budgetState.type}
+        costUsed={budgetState.costUsed}
+        costCap={budgetState.costCap}
+        onIncrease={async () => {
+          if (agentSessionId && budgetState.costCap > 0) {
+            try {
+              await setSessionBudget(agentSessionId, budgetState.costCap * 2);
+              setBudgetState((prev) => ({
+                ...prev,
+                type: null,
+                costCap: prev.costCap * 2,
+              }));
+            } catch (err) {
+              console.error("[Chat] setSessionBudget failed:", err);
+            }
+          }
+        }}
+        onDismiss={() => setBudgetState((prev) => ({ ...prev, type: null }))}
+      />
       <div className="chat-input-area">
         {slashMenuOpen && filteredSlashCommands.length > 0 && (
           <div className="slash-menu" ref={slashMenuRef}>

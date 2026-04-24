@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Repo:** `git.euraika.net/euraika/pan-agent` (GitLab primary), `github.com/Euraika-Labs/pan-agent` (mirror used for Releases/CI)
 - **Module path:** `github.com/euraika-labs/pan-agent`
-- **Version:** backend `internal/version.Version` and `desktop/package.json` are kept in sync (currently `0.4.4`)
+- **Version:** backend `internal/version.Version` and `desktop/package.json` are kept in sync (currently `0.5.0`)
 - **Go toolchain:** `go 1.25.7` (see `go.mod`) — routes use `ServeMux` `"METHOD /path"` syntax, no third-party router
 
 ## Build, Test, Run
@@ -107,7 +107,7 @@ React 19 + Vite 8 + Tailwind 4 + Tauri v2. Screens in `src/screens/` (includes a
 
 ## API Surface
 
-`scripts/verify-api.sh` reports **56 live routes, 12 documented in `docs/openapi.yaml`, 44 exempt via `scripts/openapi-exempt.txt`**. All routes live under `/v1/`. Top-level resource groups (from `internal/gateway/routes.go`):
+`scripts/verify-api.sh` reports **63 live routes, 19 documented in `docs/openapi.yaml`, 44 exempt via `scripts/openapi-exempt.txt`**. All routes live under `/v1/`. Top-level resource groups (from `internal/gateway/routes.go`):
 
 `approvals`, `chat`, `config` (includes profiles + doctor sub-paths), `cron`, `health`, `memory`, `models`, `office` (claw3d/hermes-office integration), `persona`, `recovery` (new in Phase 12), `sessions`, `skills` (list/install + Phase 11 proposals/history/usage/reviewer/curator), `tools`, plus `/v1/openapi.yaml` self-service.
 

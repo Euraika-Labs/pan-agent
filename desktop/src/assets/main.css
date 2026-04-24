@@ -5116,4 +5116,502 @@ body {
   align-items: center;
 }
 
+/* ========================================================================
+   TASKS SCREEN
+   ======================================================================== */
+
+.tasks-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+
+.tasks-header {
+  padding: 20px 24px 12px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tasks-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ─── Loading / Empty ────────────────────────────────────────────────────── */
+
+.tasks-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tasks-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tasks-empty-icon {
+  color: var(--text-muted);
+  opacity: 0.4;
+  margin-bottom: 4px;
+}
+
+.tasks-empty-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tasks-empty-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 300px;
+}
+
+/* ─── List & Groups ──────────────────────────────────────────────────────── */
+
+.tasks-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 16px 16px;
+}
+
+.tasks-group {
+  margin-bottom: 4px;
+}
+
+.tasks-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 12px 8px 6px;
+}
+
+/* ─── Task card ──────────────────────────────────────────────────────────── */
+
+.tasks-card {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+  overflow: hidden;
+  transition:
+    border-color var(--transition),
+    background var(--transition);
+}
+
+.tasks-card:hover {
+  border-color: var(--border-bright);
+}
+
+/* Running tasks get a subtle left accent */
+.tasks-card--running {
+  border-left: 2px solid #3b82f6;
+}
+
+.tasks-card--queued {
+  border-left: 2px solid var(--border-bright);
+}
+
+.tasks-card--paused {
+  border-left: 2px solid var(--warning);
+}
+
+.tasks-card--zombie {
+  border-left: 2px solid var(--error);
+}
+
+.tasks-card--succeeded {
+  border-left: 2px solid var(--success);
+}
+
+.tasks-card--failed {
+  border-left: 2px solid var(--error);
+}
+
+.tasks-card--cancelled {
+  border-left: 2px solid var(--border-bright);
+}
+
+/* The clickable summary row */
+.tasks-card-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+}
+
+.tasks-card-summary:hover {
+  background: var(--bg-tertiary);
+}
+
+.tasks-card-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tasks-card-id {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+}
+
+.tasks-card-session {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tasks-card-session-id {
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.tasks-card-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+}
+
+/* ─── Tags ───────────────────────────────────────────────────────────────── */
+
+.tasks-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  padding: 1px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+/* ─── Status badge ───────────────────────────────────────────────────────── */
+
+.tasks-status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+  line-height: 1.6;
+  border: 1px solid transparent;
+}
+
+.tasks-status-badge--queued {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.tasks-status-badge--running {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.tasks-status-badge--paused {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.tasks-status-badge--zombie {
+  background: var(--error-bg);
+  color: var(--error);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.tasks-status-badge--succeeded {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.tasks-status-badge--failed {
+  background: var(--error-bg);
+  color: var(--error);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.tasks-status-badge--cancelled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+/* ─── Expanded detail panel ──────────────────────────────────────────────── */
+
+.tasks-detail {
+  border-top: 1px solid var(--border);
+  padding: 12px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-primary);
+}
+
+.tasks-detail-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Danger variant for Cancel button */
+.btn-danger {
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: var(--error);
+}
+
+/* Small button size for action row */
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  gap: 4px;
+}
+
+/* ─── Events timeline ────────────────────────────────────────────────────── */
+
+.tasks-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tasks-events-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.tasks-events-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 12px 0;
+}
+
+.tasks-event {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+
+/* Error events stand out slightly */
+.tasks-event--error {
+  background: var(--error-bg);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.tasks-event-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tasks-event-kind-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tasks-event--error .tasks-event-kind-icon {
+  color: var(--error);
+}
+
+.tasks-event-kind {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.tasks-event-step {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.tasks-event-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks-event-payload {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0;
+  padding-left: 19px; /* align under text, past icon */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ─── CostPill: inline budget cost indicator ─────────────────────────────── */
+.cost-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cost-pill--warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.cost-pill--exceeded {
+  background: var(--error-bg);
+  color: var(--error);
+  border-color: var(--error);
+}
+
+/* ─── BudgetBanner: full-width alert bar between messages and input ───────── */
+@keyframes budgetBannerSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.budget-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 0;
+  animation: budgetBannerSlideDown 200ms ease-out both;
+}
+
+.budget-banner--warning {
+  background: var(--warning-bg);
+  border-top: 1px solid var(--warning);
+  border-bottom: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+.budget-banner--exceeded {
+  background: var(--error-bg);
+  border-top: 1px solid var(--error);
+  border-bottom: 1px solid var(--error);
+  color: var(--error);
+}
+
+.budget-banner-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-style: normal;
+}
+
+.budget-banner-text {
+  flex: 1;
+}
+
+.budget-banner-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.budget-banner-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  transition: background var(--transition), color var(--transition);
+}
+
+.budget-banner-btn:hover {
+  background: currentColor;
+  color: var(--bg-primary);
+}
+
+.budget-banner-btn--increase {
+  font-weight: 700;
+}
+
+.budget-banner-btn--end {
+  opacity: 0.8;
+}
+
+.budget-banner-btn--dismiss {
+  opacity: 0.75;
+}
+
 
