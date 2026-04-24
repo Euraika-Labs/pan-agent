@@ -65,7 +65,6 @@ func init() {
 
 var (
 	browserMu       sync.Mutex
-	sharedLauncher  *launcher.Launcher
 	sharedBrowser   *rod.Browser
 	sharedPage      *rod.Page
 	browserLaunched bool
@@ -112,7 +111,6 @@ func acquirePage(ctx context.Context) (*rod.Page, error) {
 			return nil, fmt.Errorf("browser: connect: %w", err)
 		}
 
-		sharedLauncher = l
 		sharedBrowser = b
 		browserLaunched = true
 	}
@@ -154,7 +152,6 @@ func CloseBrowser() {
 		sharedPage = nil
 	}
 
-	sharedLauncher = nil
 	browserLaunched = false
 }
 
