@@ -1,6 +1,8 @@
 # Self-Healing Skill System
 
-Phase 11 turns `<ProfileSkillsDir>/` from a static, user-curated folder into a workspace the agent itself proposes into, a reviewer agent curates, and a curator agent refines over time. This chapter covers the data model, the two agent loops, and how chat integration threads it together.
+Phase 11 (shipped in v0.3.0, stabilised across the 0.4.x line) turns `<ProfileSkillsDir>/` from a static, user-curated folder into a workspace the agent itself proposes into, a reviewer agent curates, and a curator agent refines over time. This chapter covers the data model, the two agent loops, and how chat integration threads it together.
+
+> **Status:** Phase 11 is complete and the current production surface. The next phase (Phase 12 — trust-first desktop automation, design in `docs/design/phase12.md`) is in early foundation: WS1 (`internal/secret/`) and WS2 (`internal/recovery/`) have landed as unreleased code on `main` but are not yet wired into tool execution. They are independent of the skill system described here.
 
 ## Why
 

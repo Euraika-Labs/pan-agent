@@ -20,7 +20,7 @@ graph TB
 
         subgraph "Server (gateway package)"
             HTTP["http.Server :8642<br/>withMiddleware(mux)"]
-            Routes["registerRoutes(mux)<br/>43 endpoints"]
+            Routes["registerRoutes(mux)<br/>56 endpoints"]
             ChatHandler["handleChatCompletions<br/>SSE agent loop"]
             BotMgr["botCancels map<br/>start/stop bot goroutines"]
             ApprovalStore["approval.Store<br/>pending approvals"]
@@ -64,6 +64,9 @@ graph TB
 | `internal/paths` | Cross-platform path resolution (AgentHome, ProfileHome, etc.). |
 | `internal/claw3d` | Process management for the pan-office subprocess. |
 | `internal/version` | Build-time version constants (overridden via ldflags). |
+| `internal/parentwatch` | Parent-process watchdog — sidecar terminates itself if `PAN_AGENT_PARENT_PID` dies (symmetric with Tauri killing the child). Shipped in v0.4.1. |
+| `internal/secret` | Phase 12 WS1 (unreleased on `main`): OS keyring wrapper + HMAC-based redaction for approval prompts / journal entries. Not yet wired into tool execution. |
+| `internal/recovery` | Phase 12 WS2 (unreleased on `main`): action journal + filesystem/registry/browser snapshots + reversers + `/v1/recovery/*` endpoints. Not yet wired into tool execution. |
 
 ## Server lifecycle
 

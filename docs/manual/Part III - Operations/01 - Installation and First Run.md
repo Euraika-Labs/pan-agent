@@ -51,7 +51,7 @@ pan-agent chat --model gpt-4o-mini
 ## Method 3 — Build from source
 
 Prerequisites:
-- Go 1.25.0+
+- Go 1.25.7 (per `go.mod`; any 1.25.x from 1.25.0 up works)
 - Node.js 22+ with npm (only for the desktop app)
 - Rust via rustup for the Tauri build (`rustup default stable`)
 - Linux: `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`

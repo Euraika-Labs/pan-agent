@@ -9,7 +9,7 @@ The desktop app is a Tauri v2 shell wrapping a React 19 + Vite 7 frontend.
 | Tauri version | v2 |
 | React | 19.2 |
 | Vite | 7.2 |
-| TypeScript | 5.9 |
+| TypeScript | 6.0.3 (bumped via Dependabot PR #18; `baseUrl` dropped from `tsconfig.json` — TS 6.0 makes it a hard error and path mappings anchor on the tsconfig dir under `moduleResolution: "bundler"`) |
 | Tailwind CSS | 4.2 |
 | Bundle targets | NSIS, MSI, DMG, DEB, AppImage |
 

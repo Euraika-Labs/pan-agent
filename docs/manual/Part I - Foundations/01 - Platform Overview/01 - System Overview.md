@@ -43,7 +43,7 @@ A local AI agent with full PC control. Every chat request runs through an agent 
 ## One binary, three roles
 
 ### HTTP server (default)
-The primary mode. Serves 43 REST + SSE endpoints on `localhost:8642`.
+The primary mode. Serves 56 REST + SSE endpoints on `localhost:8642`.
 
 ```bash
 pan-agent serve --port 8642

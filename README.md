@@ -442,15 +442,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 | Metric | Value |
 |---|---|
-| Latest release | [v0.3.1](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
+| Latest release | [v0.4.4](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
 | Platforms | Windows, macOS, Linux |
-| Go test functions | 93 (across 7 packages) |
-| HTTP endpoints | 50 (across 14 resource groups) |
+| Go test functions | 269 (across 22 packages) |
+| HTTP endpoints | 56 (across 13 `/v1/*` resource groups) |
 | React screens | 15 |
 | Approval patterns | 103 (Dangerous + Catastrophic) |
 | Supported LLM providers | 9 |
 | Built-in tools | 22+ (includes `skill_manage`, `skill_view`, `skills_list`, `skill_review`, `skill_curator`) |
 | Self-healing skill system | Phase 11 — proposal queue, reviewer + curator agents, history+rollback |
+| Recovery + redaction foundation | Phase 12 WS1 (`internal/secret/`) + WS2 (`internal/recovery/`) landed on main — endpoints exposed, wiring into tool execution scheduled for 0.5.0 |
 | Documentation | 42 manual documents |
 | License | MIT |
 

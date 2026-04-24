@@ -114,7 +114,7 @@ Stream terminates with `data: [DONE]\n\n`.
   "credentialPool": {
     "openrouter": [{"key": "sk-or-...", "label": "Work"}]
   },
-  "appVersion": "0.2.0",
+  "appVersion": "0.4.4",
   "agentVersion": null
 }
 ```

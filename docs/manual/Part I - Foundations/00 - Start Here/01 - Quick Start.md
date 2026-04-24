@@ -12,7 +12,7 @@ Ask this first:
 
 | Item | Value |
 |---|---|
-| Latest release | v0.2.0 |
+| Latest release | v0.4.4 |
 | GitHub Releases | `https://github.com/Euraika-Labs/pan-agent/releases` |
 | API server port | `:8642` (localhost only) |
 | Desktop dev port | `:5173` (Vite) |
@@ -25,9 +25,9 @@ Ask this first:
 
 | Platform | File |
 |---|---|
-| Windows | `Pan.Desktop_0.2.0_x64-setup.exe` (NSIS, unsigned — click "More info" → "Run anyway") |
-| macOS ARM | `Pan.Desktop_0.2.0_aarch64.dmg` (right-click → Open to bypass Gatekeeper) |
-| Linux | `Pan.Desktop_0.2.0_amd64.AppImage` (chmod +x then run) or `.deb` |
+| Windows | `Pan.Desktop_0.4.4_x64-setup.exe` (NSIS, unsigned — click "More info" → "Run anyway") |
+| macOS ARM | `Pan.Desktop_0.4.4_aarch64.dmg` (right-click → Open to bypass Gatekeeper) |
+| Linux | `Pan.Desktop_0.4.4_amd64.AppImage` (chmod +x then run) or `.deb` |
 
 ### Headless CLI
 

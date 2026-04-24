@@ -5,6 +5,82 @@ All notable changes to Pan-Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Post-0.4.4 stabilisation on `main`. No version bump yet — the next cut
+is targeted at 0.5.0, once Phase 12 WS2 is wired into tool execution
+(see `docs/design/phase12.md`). Entries below describe what has landed
+since the 0.4.4 tag.
+
+### Added
+- **`AGENTS.md`** — repository contributor guide (project layout,
+  commands, style, testing, commit conventions, security rules) now
+  tracked in the repo.
+
+### Changed
+- **`CLAUDE.md`** refreshed for v0.4.4 + Phase 12 foundation. Corrects
+  the Go toolchain reference (1.25.7), the live route count (56 via
+  `scripts/verify-api.sh`), and adds source-verified descriptions for
+  `internal/recovery/`, `internal/secret/`, `internal/parentwatch/`,
+  and `internal/paths/`.
+- **`desktop/tsconfig.json`** — dropped deprecated `baseUrl` entry.
+  Unblocks TypeScript 6.0 compatibility (TS5101 is now a hard error).
+  With `moduleResolution: "bundler"` path mappings resolve relative to
+  the tsconfig.json directory automatically; the `@/*` path entry was
+  rewritten as `./src/*` for explicit anchoring.
+- **`internal/claw3d/migrate.go`** — restructured so `sanitizeMigrationPath`
+  results flow into local `cleanSource` / `cleanBackup` variables used
+  directly at every `os.*` and `filepath.Join` sink, instead of being
+  re-assigned through `opt.Source` / `opt.BackupDir`. Identical runtime
+  behaviour; makes the sanitisation legible to static analysis.
+
+### Fixed
+- **CI: `golangci-lint` on `main`.** Nine files in `internal/recovery/`
+  and `internal/secret/` (from PRs #15 and #16) landed unformatted and
+  had been failing every subsequent PR's lint check. `gofmt -w` pass
+  clears them. Also cleared 10 residual `staticcheck` and `unused`
+  findings in the Phase 12 foundation: `undoResponse(result)` type
+  conversion instead of struct literal, two De Morgan's-law hex-range
+  checks, one redundant type annotation, and deletion of five
+  unreachable items (`contextKey` placeholder, `realApprovalRequester`
+  + method, `snapshotFileStat`, `makeTokenForTest`, `redactorKey`,
+  `wantToken`) that PR #16 had left as forward-compat stubs.
+- **CI: Dependabot PRs.** The `tauri` job is now gated on
+  `github.actor != 'dependabot[bot]'`. Dependabot PRs run with
+  restricted permissions and cannot read `TAURI_SIGNING_PRIVATE_KEY`,
+  so the updater-signing step was failing on every bot PR even though
+  the .deb / .rpm / .AppImage / .msi / .dmg bundles compiled cleanly.
+  Bot PRs now skip Tauri and rely on Go + Desktop + golangci-lint +
+  gosec + CodeQL for signal; main branch and human PRs are unaffected.
+
+### Security
+- **CodeQL `go/path-injection` alerts #81–#85, #95** on
+  `internal/claw3d/migrate.go`: dismissed as won't-fix after the
+  restructure above. The migrate-office CLI runs on the user's own
+  machine against their own `.hermes` data; paths pass through
+  `sanitizeMigrationPath` (`filepath.Clean` + `filepath.Abs`);
+  canonicalisation is the intent, not a jail. CodeQL's taint model
+  does not recognise this pattern as a sanitiser and re-flags every
+  equivalent refactor.
+- **Dependabot alert #3 (LOW, `rand` crate unsound with custom
+  logger)** — transitive dependency in `desktop/src-tauri/Cargo.lock`
+  bumped 0.8.5 → 0.8.6 via `cargo update -p rand@0.8.5 --precise 0.8.6`.
+  Pan-Agent does not use a custom `rand` logger, so the advisory was
+  advisory-only for us. The unrelated `rand 0.7.3` pin is a different
+  major and is not affected.
+
+### Dependencies
+- **TypeScript** bumped 5.9.3 → 6.0.3 via Dependabot PR #18.
+- **GitHub Actions** group (5 updates) via PR #19: `actions/checkout`
+  v4→v6, `actions/setup-go` v5→v6, `actions/setup-node` v4→v6,
+  `actions/upload-artifact` v4→v7, `peter-evans/create-pull-request`
+  v6→v8. All runtime-only bumps on GitHub-hosted runners; no
+  workflow syntax changes.
+- **Go modules** group (5 updates) via PR #21: `jezek/xgb`
+  1.3.0→1.3.1, `slack-go/slack` 0.22.0→0.23.0, `golang.org/x/sys`
+  0.42→0.43, `golang.org/x/text` 0.32→0.36 (Unicode 17 tables),
+  `modernc.org/sqlite` 1.48.2→1.49.1 (SQLite 3.53.0).
+
 ## [0.4.4] - 2026-04-17
 
 Completes the 0.4.3 security-scanner pass. No runtime behaviour change —

@@ -7,10 +7,10 @@ The Go backend is the core of Pan-Agent. It compiles to a single binary with no 
 | Item | Value |
 |---|---|
 | Module path | `github.com/euraika-labs/pan-agent` |
-| Go version | 1.25.0+ |
+| Go version | 1.25.7 (per `go.mod`) |
 | Binary name | `pan-agent` (`.exe` on Windows) |
 | Default port | 8642 |
-| Test count | 72 across 6 packages |
+| Test count | 269 across 22 packages |
 
 ## Direct dependencies
 
@@ -32,7 +32,7 @@ The Go backend is the core of Pan-Agent. It compiles to a single binary with no 
 go build -o pan-agent.exe ./cmd/pan-agent
 
 # With version stamping (used by CI)
-go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=0.2.0 \
+go build -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=0.4.4 \
                    -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD) \
                    -X github.com/euraika-labs/pan-agent/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
          -o pan-agent.exe ./cmd/pan-agent

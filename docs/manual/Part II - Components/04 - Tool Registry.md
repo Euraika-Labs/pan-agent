@@ -33,7 +33,7 @@ func All() map[string]Tool    // shallow copy
 
 The registry is populated at process start by `init()` functions in each tool file. After init, it is read-only — there is no runtime add/remove.
 
-## Tool catalog (v0.2.0)
+## Tool catalog (v0.4.4)
 
 | Name | Description | Approval? | Cross-platform? |
 |---|---|---|---|

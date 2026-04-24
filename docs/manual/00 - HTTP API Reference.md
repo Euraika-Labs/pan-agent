@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-Complete catalog of all 50 endpoints exposed by the Pan-Agent backend.
+Complete catalog of all 56 endpoints exposed by the Pan-Agent backend (as of v0.4.4 + unreleased Phase 12 foundation on `main`). Live count verified via `scripts/verify-api.sh`. Top-level resource groups: `approvals`, `chat`, `config`, `cron`, `health`, `memory`, `models`, `office`, `persona`, `recovery`, `sessions`, `skills`, `tools`.
 
 ## Conventions
 
@@ -72,7 +72,7 @@ Returns:
   "agentHome": "...",
   "model": {"provider": "...", "model": "...", "baseUrl": "..."},
   "credentialPool": {...},
-  "appVersion": "0.3.1",
+  "appVersion": "0.4.4",
   "agentVersion": null
 }
 ```
@@ -125,7 +125,7 @@ Delete a profile. Cannot delete "default". Returns `{"success": true}` or error.
 Run health checks. Returns `{"output": "pan-agent doctor\n----------------\n  [OK] ..."}`.
 
 ### POST /v1/config/update
-Check for updates. Returns `{"available": false, "current": "0.3.1"}` (currently a stub — the real updater is the Tauri plugin).
+Check for updates. Returns `{"available": false, "current": "0.4.4"}` (currently a stub — the real updater is the Tauri plugin).
 
 ## Memory
 
@@ -283,7 +283,20 @@ Start the dev server and adapter processes.
 ### POST /v1/claw3d/stop
 Stop both processes.
 
-## Total: 50 endpoints
+## Recovery (Phase 12 foundation — unreleased on main)
+
+`internal/recovery/` (WS2) landed post-0.4.4 as an action journal + rollback layer: every tool execution can be recorded into a SQLite-backed journal with filesystem / registry / browser-state snapshots, and the recorded entries can be replayed in reverse. Routes below are wired into the gateway but NOT yet invoked from tool execution — they're reachable, but on `main` the journal is still empty unless populated by tests. Scheduled to be wired into the tool dispatch path for v0.5.0.
+
+### GET /v1/recovery/list
+List journal entries. Query: `?session_id=...&limit=N` (default 50). Returns an array of journal rows (`{id, session_id, action_type, target, snapshot_ref, started_at, finished_at, status, error}`).
+
+### POST /v1/recovery/undo
+Reverse a journal entry. Body: `{"id": "..."}`. Dispatches to the registered reverser for that `action_type` (filesystem, registry, browser) and flips status to `undone`.
+
+### GET /v1/recovery/diff
+Compute a diff between an action's pre-snapshot and the current on-disk state. Query: `?id=<entry_id>`. Returns unified-diff text.
+
+## Total: 56 endpoints
 
 ## Read next
 - [[02 - HTTP API Surface]]
