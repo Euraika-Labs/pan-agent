@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Phase 12 WS#5 — Apple TCC usage descriptions.
+
+    These strings are surfaced in the system permission prompts the
+    first time Pan-Agent triggers a TCC class. Without them, macOS
+    silently fails the request (or in newer SDKs throws TCC errors
+    that look like the prompt was denied).
+
+    Apple guidance: keep each description user-focused and
+    action-oriented. The reviewer for App Store submissions rejects
+    boilerplate ("for app functionality") so we explain *what we do*.
+  -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Pan-Agent uses Apple Events to drive scriptable apps you choose (Finder, Mail, Calendar, etc.) when you ask the agent to perform tasks in them.</string>
+
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Pan-Agent captures your screen so the visual tools can see what you see and act on it. Captures stay on your machine and are HMAC-redacted before being journaled.</string>
+
+  <key>NSAccessibilityUsageDescription</key>
+  <string>Pan-Agent uses Accessibility APIs to read window titles and click UI elements when you ask the agent to drive other applications.</string>
+
+  <key>NSSystemAdministrationUsageDescription</key>
+  <string>Pan-Agent may request Full Disk Access lazily — only when an action you've authorized needs to write to a TCC-protected location (e.g., ~/Library, ~/Desktop).</string>
+</dict>
+</plist>

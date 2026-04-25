@@ -2,6 +2,7 @@ import { useState } from "react";
 import { fetchJSON } from "../../api";
 import { PROVIDERS, LOCAL_PRESETS } from "../../constants";
 import icon from "../../assets/icon.png";
+import { Permissions } from "./Permissions";
 
 type SetupProvider = (typeof PROVIDERS.setup)[number];
 
@@ -9,7 +10,10 @@ interface SetupProps {
   onComplete: () => void;
 }
 
+type SetupStep = "provider" | "permissions";
+
 export default function Setup({ onComplete }: SetupProps) {
+  const [step, setStep] = useState<SetupStep>("provider");
   const [provider, setProvider] = useState<SetupProvider | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [keyVisible, setKeyVisible] = useState(false);
@@ -61,7 +65,10 @@ export default function Setup({ onComplete }: SetupProps) {
         // Sync failure is non-fatal
       });
 
-      onComplete();
+      // Provider configured. Hand off to the WS#5 permissions wizard;
+      // it auto-skips on non-macOS and on Vite-only dev (no Tauri shell).
+      setSyncing(false);
+      setStep("permissions");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
@@ -91,6 +98,21 @@ export default function Setup({ onComplete }: SetupProps) {
   const canSubmit =
     provider &&
     (!provider.needsKey || apiKey.trim() || provider.id === "custom-openai");
+
+  if (step === "permissions") {
+    return (
+      <div className="setup-screen">
+        <img
+          src={icon}
+          width={64}
+          height={64}
+          alt=""
+          style={{ borderRadius: "var(--radius-md)" }}
+        />
+        <Permissions onComplete={onComplete} />
+      </div>
+    );
+  }
 
   return (
     <div className="setup-screen">
