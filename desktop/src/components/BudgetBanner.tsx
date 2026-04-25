@@ -1,8 +1,11 @@
 interface BudgetBannerProps {
-  type: "warning" | "exceeded" | null;
+  /**
+   * Only the "warning" (80%) state lives here. The 100% "exceeded" state is
+   * a focus-trapped modal — see BudgetExceededDialog. Pass null to hide.
+   */
+  type: "warning" | null;
   costUsed: number;
   costCap: number;
-  onIncrease?: () => void;
   onDismiss?: () => void;
 }
 
@@ -14,57 +17,33 @@ export function BudgetBanner({
   type,
   costUsed,
   costCap,
-  onIncrease,
   onDismiss,
 }: BudgetBannerProps): React.JSX.Element | null {
   if (!type) return null;
 
   const costLabel = `${formatCost(costUsed)} / ${formatCost(costCap)}`;
-  const isExceeded = type === "exceeded";
 
   return (
     <div
-      className={`budget-banner budget-banner--${type}`}
+      className="budget-banner budget-banner--warning"
       role="alert"
-      aria-live="assertive"
+      aria-live="polite"
     >
       <span className="budget-banner-icon" aria-hidden="true">
-        {isExceeded ? "!" : "⚠"}
+        ⚠
       </span>
       <span className="budget-banner-text">
-        {isExceeded
-          ? `Budget exceeded (${costLabel})`
-          : `Budget at 80% (${costLabel})`}
+        Budget at 80% ({costLabel})
       </span>
       <div className="budget-banner-actions">
-        {isExceeded && (
-          <button
-            className="budget-banner-btn budget-banner-btn--increase"
-            onClick={onIncrease}
-            type="button"
-          >
-            Increase Limit
-          </button>
-        )}
-        {isExceeded && (
-          <button
-            className="budget-banner-btn budget-banner-btn--end"
-            onClick={onDismiss}
-            type="button"
-          >
-            End Session
-          </button>
-        )}
-        {!isExceeded && (
-          <button
-            className="budget-banner-btn budget-banner-btn--dismiss"
-            onClick={onDismiss}
-            type="button"
-            aria-label="Dismiss budget warning"
-          >
-            Dismiss
-          </button>
-        )}
+        <button
+          className="budget-banner-btn budget-banner-btn--dismiss"
+          onClick={onDismiss}
+          type="button"
+          aria-label="Dismiss budget warning"
+        >
+          Dismiss
+        </button>
       </div>
     </div>
   );

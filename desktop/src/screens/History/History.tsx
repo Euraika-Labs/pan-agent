@@ -141,7 +141,12 @@ const ReceiptCard = memo(function ReceiptCard({
 }: {
   receipt: ReceiptDTO;
   expanded: boolean;
-  undoState?: { pending: boolean; approvalId?: string; reversed?: boolean };
+  undoState?: {
+    pending: boolean;
+    approvalId?: string;
+    reversed?: boolean;
+    revertedAt?: number;
+  };
   onToggle: () => void;
   onViewDiff: () => void;
   onUndo: () => void;
@@ -191,10 +196,10 @@ const ReceiptCard = memo(function ReceiptCard({
             </pre>
           </div>
 
-          {receipt.saasDeepLink && (
+          {receipt.saasUrl && (
             <a
               className="history-detail-link"
-              href={receipt.saasDeepLink}
+              href={receipt.saasUrl}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -227,7 +232,12 @@ const ReceiptCard = memo(function ReceiptCard({
             {undoState?.reversed && (
               <span className="history-reversed-label">
                 <ShieldCheck size={12} />
-                Reversed
+                {undoState.revertedAt
+                  ? `Reverted at ${new Date(undoState.revertedAt).toLocaleTimeString(
+                      [],
+                      { hour: "2-digit", minute: "2-digit" },
+                    )}`
+                  : "Reverted"}
               </span>
             )}
           </div>
@@ -246,7 +256,18 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
   const [undoStates, setUndoStates] = useState<
     Record<
       string,
-      { pending: boolean; approvalId?: string; reversed?: boolean }
+      {
+        pending: boolean;
+        approvalId?: string;
+        reversed?: boolean;
+        /**
+         * Local timestamp captured when an undo succeeds. Drives the
+         * "Reverted at HH:MM" stamp; survives auto-refreshes since it's
+         * keyed by receipt ID, so the row stays in place rather than
+         * reordering when the journal status updates.
+         */
+        revertedAt?: number;
+      }
     >
   >({});
 
@@ -318,27 +339,25 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
       }));
       try {
         const res = await undoRecovery(receiptId);
-        if (res.status === 202) {
-          // Needs approval
-          const approvalId = res.headers.get("X-Approval-Id") ?? undefined;
+        if (res.httpStatus === 202) {
+          // Needs approval — caller should poll /v1/approvals/{id}.
           setUndoStates((prev) => ({
             ...prev,
-            [receiptId]: { pending: false, approvalId },
+            [receiptId]: { pending: false, approvalId: res.approvalId },
           }));
-        } else if (res.ok) {
-          // Reversed successfully
+        } else {
+          // 200 — reversed synchronously. Stamp the local revertedAt so
+          // the row keeps its position rather than reordering (per the
+          // WS#2 design-doc "Never reorder post-revert").
           setUndoStates((prev) => ({
             ...prev,
-            [receiptId]: { pending: false, reversed: true },
+            [receiptId]: {
+              pending: false,
+              reversed: true,
+              revertedAt: Date.now(),
+            },
           }));
           await loadReceipts();
-        } else {
-          const text = await res.text().catch(() => `HTTP ${res.status}`);
-          console.error("[History] undo error:", text);
-          setUndoStates((prev) => ({
-            ...prev,
-            [receiptId]: { pending: false },
-          }));
         }
       } catch (err) {
         console.error("[History] undo error:", err);

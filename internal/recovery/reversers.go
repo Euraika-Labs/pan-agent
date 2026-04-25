@@ -172,8 +172,8 @@ type FSReverser struct {
 func (f *FSReverser) Kind() ReceiptKind { return KindFSWrite }
 
 func (f *FSReverser) Reverse(ctx context.Context, r Receipt) (ReverseResult, error) {
-	// SaaSDeepLink carries the snapshot subpath (set at capture time by the tool).
-	subpath := r.SaaSDeepLink
+	// ReverserHint carries the snapshot subpath (set at capture time by the tool).
+	subpath := r.ReverserHint
 	if subpath == "" {
 		return ReverseResult{
 			Applied:   false,
@@ -319,8 +319,8 @@ func (b *BrowserFormReverser) Kind() ReceiptKind { return KindBrowserForm }
 
 func (b *BrowserFormReverser) Reverse(_ context.Context, r Receipt) (ReverseResult, error) {
 	details := "Manual reversal required"
-	if r.SaaSDeepLink != "" {
-		details += ": " + r.SaaSDeepLink
+	if r.ReverserHint != "" {
+		details += ": " + r.ReverserHint
 	}
 	return ReverseResult{
 		Applied:   false,

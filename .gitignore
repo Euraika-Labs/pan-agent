@@ -32,6 +32,10 @@ ruvector.db
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 
+# Tauri sidecar binaries — built fresh by CI (`go build -o ...`), not tracked
+desktop/src-tauri/binaries/pan-agent-*
+!desktop/src-tauri/binaries/.gitkeep
+
 # Node
 desktop/node_modules/
 desktop/dist/

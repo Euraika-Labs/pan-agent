@@ -61,6 +61,10 @@ func Open(dbPath string) (*DB, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("storage.Open migrateSessionBudget: %w", err)
 	}
+	if err := d.migrateActionReceiptsSaasSplit(); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("storage.Open migrateActionReceiptsSaasSplit: %w", err)
+	}
 	return d, nil
 }
 
@@ -262,6 +266,64 @@ func (d *DB) migrateSessionBudget() error {
 	return nil
 }
 
+// migrateActionReceiptsSaasSplit splits the overloaded saas_deep_link column
+// on action_receipts into two semantically distinct columns:
+//
+//	saas_url       — public http(s) URL into the SaaS UI; only meaningful
+//	                 for kind='saas_api' receipts (none exist in production
+//	                 today, but the field is the substrate for v0.6.0+).
+//	reverser_hint  — reverser-private payload (snapshot subpath for FS,
+//	                 manual-undo target app for browser form, ...) that
+//	                 must NOT be surfaced to the desktop UI as a link.
+//
+// The legacy saas_deep_link column is kept (deprecated) so a downgrade
+// can still read older rows, but no new code path writes to it.
+//
+// Backfill rule (lossless, kind-agnostic): any existing value that looks
+// like an http(s) URL goes to saas_url; anything else goes to reverser_hint.
+// Idempotent — each ALTER probes pragma_table_info first; the UPDATE only
+// fires while saas_url and reverser_hint are both NULL on a row.
+func (d *DB) migrateActionReceiptsSaasSplit() error {
+	cols := []struct {
+		name string
+		ddl  string
+	}{
+		{"saas_url", `ALTER TABLE action_receipts ADD COLUMN saas_url TEXT`},
+		{"reverser_hint", `ALTER TABLE action_receipts ADD COLUMN reverser_hint TEXT`},
+	}
+	for _, c := range cols {
+		var n int
+		if err := d.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('action_receipts') WHERE name=?`, c.name,
+		).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		if _, err := d.db.Exec(c.ddl); err != nil {
+			return fmt.Errorf("migrateActionReceiptsSaasSplit(%s): %w", c.name, err)
+		}
+	}
+	// Backfill from legacy saas_deep_link only on rows where neither new
+	// column has been populated yet. Safe to re-run after partial crash.
+	if _, err := d.db.Exec(`
+		UPDATE action_receipts
+		   SET saas_url = CASE
+		           WHEN saas_deep_link LIKE 'http://%'  THEN saas_deep_link
+		           WHEN saas_deep_link LIKE 'https://%' THEN saas_deep_link
+		           ELSE NULL END,
+		       reverser_hint = CASE
+		           WHEN saas_deep_link LIKE 'http://%'  THEN NULL
+		           WHEN saas_deep_link LIKE 'https://%' THEN NULL
+		           ELSE saas_deep_link END
+		 WHERE saas_url IS NULL AND reverser_hint IS NULL
+		   AND saas_deep_link IS NOT NULL AND saas_deep_link != ''`); err != nil {
+		return fmt.Errorf("migrateActionReceiptsSaasSplit backfill: %w", err)
+	}
+	return nil
+}
+
 // Close releases the underlying database connection.
 func (d *DB) Close() error {
 	return d.db.Close()
@@ -430,7 +492,9 @@ CREATE TABLE IF NOT EXISTS action_receipts (
     snapshot_tier    TEXT    NOT NULL,
     reversal_status  TEXT    NOT NULL,
     redacted_payload TEXT,
-    saas_deep_link   TEXT,
+    saas_deep_link   TEXT,                -- deprecated; superseded by saas_url + reverser_hint
+    saas_url         TEXT,                -- public http(s) URL into the SaaS, only set for kind='saas_api'
+    reverser_hint    TEXT,                -- reverser-private payload (snapshot subpath, manual-undo app, ...)
     created_at       INTEGER NOT NULL,
     FOREIGN KEY (task_id)  REFERENCES tasks(id),
     FOREIGN KEY (event_id) REFERENCES task_events(id)

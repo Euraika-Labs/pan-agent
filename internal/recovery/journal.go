@@ -76,6 +76,14 @@ var validStatuses = map[ReversalStatus]bool{
 
 // Receipt is the in-memory shape tools pass to Record.
 // Payload holds the RAW pre-redaction bytes; Journal.Record redacts before write.
+//
+// Two distinct fields replace the legacy SaaSDeepLink:
+//   - SaaSURL is a public http(s):// link into the SaaS UI ("Open in
+//     Gmail", "View in Stripe"). Only set for receipts whose Kind is
+//     KindSaaSAPI. Surfaced to the desktop History UI as a clickable link.
+//   - ReverserHint is reverser-private state (snapshot subpath for FS
+//     receipts, manual-undo target app for browser form receipts). Never
+//     exposed in the JSON DTO — purely internal.
 type Receipt struct {
 	ID             string
 	TaskID         string
@@ -84,7 +92,8 @@ type Receipt struct {
 	SnapshotTier   SnapshotTier
 	ReversalStatus ReversalStatus
 	Payload        []byte // raw — never persisted directly
-	SaaSDeepLink   string
+	SaaSURL        string
+	ReverserHint   string
 	CreatedAt      int64 // unix seconds; populated by Record when zero
 }
 
@@ -136,10 +145,11 @@ func (j *Journal) Record(ctx context.Context, r Receipt) error {
 	_, err := j.db.ExecContext(ctx,
 		`INSERT INTO action_receipts
 		 (id, task_id, event_id, kind, snapshot_tier, reversal_status,
-		  redacted_payload, saas_deep_link, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  redacted_payload, saas_url, reverser_hint, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.TaskID, r.EventID, string(r.Kind), string(r.SnapshotTier),
-		string(r.ReversalStatus), string(redacted), r.SaaSDeepLink, r.CreatedAt,
+		string(r.ReversalStatus), string(redacted),
+		nullStringOrNil(r.SaaSURL), nullStringOrNil(r.ReverserHint), r.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("recovery: Record: %w", err)
@@ -180,7 +190,7 @@ func (j *Journal) UpdateStatus(ctx context.Context, id string, status ReversalSt
 func (j *Journal) List(ctx context.Context, taskID string, limit, offset int) ([]Receipt, error) {
 	rows, err := j.db.QueryContext(ctx,
 		`SELECT id, task_id, event_id, kind, snapshot_tier, reversal_status,
-		        redacted_payload, saas_deep_link, created_at
+		        redacted_payload, saas_url, reverser_hint, created_at
 		 FROM action_receipts
 		 WHERE task_id=?
 		 ORDER BY created_at DESC
@@ -200,7 +210,8 @@ func (j *Journal) List(ctx context.Context, taskID string, limit, offset int) ([
 func (j *Journal) ListSession(ctx context.Context, sessionID string, limit, offset int) ([]Receipt, error) {
 	rows, err := j.db.QueryContext(ctx,
 		`SELECT ar.id, ar.task_id, ar.event_id, ar.kind, ar.snapshot_tier,
-		        ar.reversal_status, ar.redacted_payload, ar.saas_deep_link, ar.created_at
+		        ar.reversal_status, ar.redacted_payload, ar.saas_url,
+		        ar.reverser_hint, ar.created_at
 		 FROM action_receipts ar
 		 JOIN tasks t ON t.id = ar.task_id
 		 WHERE t.session_id=?
@@ -219,7 +230,7 @@ func (j *Journal) ListSession(ctx context.Context, sessionID string, limit, offs
 func (j *Journal) Get(ctx context.Context, id string) (Receipt, error) {
 	row := j.db.QueryRowContext(ctx,
 		`SELECT id, task_id, event_id, kind, snapshot_tier, reversal_status,
-		        redacted_payload, saas_deep_link, created_at
+		        redacted_payload, saas_url, reverser_hint, created_at
 		 FROM action_receipts WHERE id=?`, id,
 	)
 	r, err := scanReceipt(row)
@@ -239,11 +250,12 @@ type rowScanner interface {
 
 func scanReceipt(row rowScanner) (Receipt, error) {
 	var r Receipt
-	var kind, tier, status, payload, deepLink string
+	var kind, tier, status, payload string
+	var saasURL, reverserHint sql.NullString
 	var eventID sql.NullInt64
 	err := row.Scan(
 		&r.ID, &r.TaskID, &eventID, &kind, &tier, &status,
-		&payload, &deepLink, &r.CreatedAt,
+		&payload, &saasURL, &reverserHint, &r.CreatedAt,
 	)
 	if err != nil {
 		return Receipt{}, err
@@ -257,8 +269,22 @@ func scanReceipt(row rowScanner) (Receipt, error) {
 	r.ReversalStatus = ReversalStatus(status)
 	// Payload field holds the already-redacted bytes (what is stored).
 	r.Payload = []byte(payload)
-	r.SaaSDeepLink = deepLink
+	if saasURL.Valid {
+		r.SaaSURL = saasURL.String
+	}
+	if reverserHint.Valid {
+		r.ReverserHint = reverserHint.String
+	}
 	return r, nil
+}
+
+// nullStringOrNil maps an empty string to a SQL NULL so the new columns
+// don't get filled with zero-length strings that confuse downstream filters.
+func nullStringOrNil(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func scanReceipts(rows *sql.Rows) ([]Receipt, error) {
