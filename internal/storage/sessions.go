@@ -233,6 +233,30 @@ func (d *DB) CountMessages() (int, error) {
 	return n, nil
 }
 
+// GetSession returns a single session record by ID. Returns sql.ErrNoRows
+// when the session does not exist (callers can use errors.Is to detect this).
+func (d *DB) GetSession(sessionID string) (Session, error) {
+	const q = `
+SELECT id, source, started_at, ended_at, message_count, model, title,
+       token_budget_used, token_budget_cap, cost_used_usd, cost_cap_usd
+FROM sessions
+WHERE id = ?`
+	var s Session
+	var model, title sql.NullString
+	err := d.db.QueryRow(q, sessionID).Scan(
+		&s.ID, &s.Source, &s.StartedAt, &s.EndedAt,
+		&s.MessageCount, &model, &title,
+		&s.TokenBudgetUsed, &s.TokenBudgetCap,
+		&s.CostUsedUSD, &s.CostCapUSD,
+	)
+	if err != nil {
+		return Session{}, err
+	}
+	s.Model = model.String
+	s.Title = title.String
+	return s, nil
+}
+
 // GetSessionBudget returns the budget fields for a single session.
 func (d *DB) GetSessionBudget(sessionID string) (costUsed, costCap float64, err error) {
 	err = d.db.QueryRow(

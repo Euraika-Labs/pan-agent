@@ -445,6 +445,31 @@ paths:
             application/yaml: {}
             text/yaml: {}
 
+  /v1/sessions/{id}/info:
+    get:
+      summary: Read a single session record (with budget fields)
+      description: |
+        Returns the full Session row — used by the desktop Chat screen on
+        mount to seed the cost-pill UI so the budget display survives
+        navigating away and back rather than resetting to zero until the
+        next budget SSE event arrives.
+
+        Note: GET /v1/sessions/{id} returns the message list (historical),
+        so the Session resource itself lives here at /info.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Session record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "404":
+          $ref: "#/components/responses/Error"
+
   /v1/sessions/{id}/budget:
     put:
       summary: Set the cost cap for a session

@@ -8,6 +8,7 @@ import {
 } from "../../components/ApprovalModal";
 import { CostPill } from "../../components/CostPill";
 import { BudgetBanner } from "../../components/BudgetBanner";
+import { BudgetExceededDialog } from "../../components/BudgetExceededDialog";
 import {
   Trash2 as Trash,
   Send,
@@ -22,7 +23,7 @@ import {
   Bell,
   Slash,
 } from "lucide-react";
-import { fetchJSON, streamSSE, setSessionBudget } from "../../api";
+import { fetchJSON, streamSSE, setSessionBudget, getSession } from "../../api";
 import { PROVIDERS } from "../../constants";
 
 // ── Slash Commands ──────────────────────────────────────
@@ -335,6 +336,38 @@ function Chat({
       setAgentSessionId(null);
     }
   }, [messages]);
+
+  // Seed budget pill from the persisted Session record whenever we mount
+  // into an existing session (sessionId prop set). Without this the cost
+  // pill resets to $0/$0 on every navigation back into a session, only
+  // re-populating when the next budget.warning/budget.exceeded SSE event
+  // fires — which never happens for a session below 80% of cap.
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    getSession(sessionId)
+      .then((info) => {
+        if (cancelled) return;
+        setBudgetState((prev) => {
+          // If the live SSE stream has already pushed a warning/exceeded
+          // state, don't clobber it with the (potentially stale) DB read.
+          if (prev.type !== null) return prev;
+          return {
+            type: null,
+            costUsed: info.costUsedUsd,
+            costCap: info.costCapUsd,
+          };
+        });
+      })
+      .catch((err) => {
+        // 404 is expected if the route navigates here optimistically before
+        // the session row is created — log + ignore.
+        console.warn("[Chat] getSession seed failed:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   const loadModelConfig = useCallback(async (): Promise<void> => {
     try {
@@ -1125,24 +1158,47 @@ function Chat({
       </div>
 
       <BudgetBanner
-        type={budgetState.type}
+        type={budgetState.type === "warning" ? "warning" : null}
         costUsed={budgetState.costUsed}
         costCap={budgetState.costCap}
-        onIncrease={async () => {
-          if (agentSessionId && budgetState.costCap > 0) {
-            try {
-              await setSessionBudget(agentSessionId, budgetState.costCap * 2);
-              setBudgetState((prev) => ({
-                ...prev,
-                type: null,
-                costCap: prev.costCap * 2,
-              }));
-            } catch (err) {
-              console.error("[Chat] setSessionBudget failed:", err);
-            }
+        onDismiss={() => setBudgetState((prev) => ({ ...prev, type: null }))}
+      />
+
+      <BudgetExceededDialog
+        open={budgetState.type === "exceeded"}
+        costUsed={budgetState.costUsed}
+        costCap={budgetState.costCap}
+        onIncreaseDouble={async () => {
+          if (!agentSessionId || budgetState.costCap <= 0) return;
+          try {
+            const newCap = budgetState.costCap * 2;
+            await setSessionBudget(agentSessionId, newCap);
+            setBudgetState((prev) => ({
+              ...prev,
+              type: null,
+              costCap: newCap,
+            }));
+          } catch (err) {
+            console.error("[Chat] setSessionBudget (2x) failed:", err);
           }
         }}
-        onDismiss={() => setBudgetState((prev) => ({ ...prev, type: null }))}
+        onIncreaseCustom={async (newCap) => {
+          if (!agentSessionId || newCap <= 0) return;
+          try {
+            await setSessionBudget(agentSessionId, newCap);
+            setBudgetState((prev) => ({
+              ...prev,
+              type: null,
+              costCap: newCap,
+            }));
+          } catch (err) {
+            console.error("[Chat] setSessionBudget (custom) failed:", err);
+          }
+        }}
+        onEndSession={() => {
+          setBudgetState((prev) => ({ ...prev, type: null }));
+          if (onNewChat) onNewChat();
+        }}
       />
       <div className="chat-input-area">
         {slashMenuOpen && filteredSlashCommands.length > 0 && (

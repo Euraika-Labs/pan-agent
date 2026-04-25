@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -84,6 +86,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// --------------------------------------------------------------- sessions
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionList)
 	mux.HandleFunc("GET /v1/sessions/{id}", s.handleSessionGet)
+	mux.HandleFunc("GET /v1/sessions/{id}/info", s.handleSessionInfo)
 	mux.HandleFunc("PUT /v1/sessions/{id}/budget", s.handleSessionBudget)
 
 	// ----------------------------------------------------------------- models
@@ -287,6 +290,13 @@ func (s *Server) handleSessionList(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSessionGet returns all messages for a single session.
+//
+// Note: this is a historical artefact — the resource at this URL is
+// the session itself. The session metadata (including budget fields
+// the cost-pill UI seeds from on Chat mount) lives at
+// /v1/sessions/{id}/info — see handleSessionInfo. Renaming this to
+// /v1/sessions/{id}/messages would be cleaner but breaking; left in
+// place for now.
 func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	msgs, err := s.db.GetMessages(id)
@@ -298,6 +308,25 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 		msgs = []storage.Message{}
 	}
 	writeJSON(w, http.StatusOK, msgs)
+}
+
+// handleSessionInfo returns the Session record (id, source, model, title,
+// timestamps, budget fields) for a single session. Used by the desktop
+// Chat screen on mount to seed the cost-pill UI so navigating away and
+// back to a session preserves the budget display rather than resetting
+// to zero until the next SSE event arrives.
+func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sess, err := s.db.GetSession(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, sess)
 }
 
 // handleSessionBudget sets the cost cap for a session.
