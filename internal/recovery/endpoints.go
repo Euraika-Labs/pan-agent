@@ -73,13 +73,13 @@ func toDTO(r Receipt) ReceiptDTO {
 
 // List returns receipts for a session (newest-first). Query params:
 //
-//	sessionID string  — required
-//	limit     int     — default 50
-//	offset    int     — default 0
+//	session_id string  — required
+//	limit      int     — default 50
+//	offset     int     — default 0
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("sessionID")
+	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
-		writeRecoveryError(w, http.StatusBadRequest, "invalid_request", "sessionID is required")
+		writeRecoveryError(w, http.StatusBadRequest, "invalid_request", "session_id is required")
 		return
 	}
 	limit, offset := parsePagination(r)

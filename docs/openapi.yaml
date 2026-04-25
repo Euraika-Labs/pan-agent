@@ -615,7 +615,7 @@ paths:
       summary: List recovery receipts for a session
       parameters:
         - in: query
-          name: sessionID
+          name: session_id
           required: true
           schema: { type: string }
           description: Session ID whose receipts should be listed.
