@@ -312,12 +312,64 @@ export function listRecoveries(sessionId?: string, limit?: number): Promise<Rece
   return fetchJSON<ReceiptDTO[]>(`/v1/recovery/list${qs ? `?${qs}` : ""}`);
 }
 
+/**
+ * List receipts scoped to a single task (newest-first). Used by the
+ * task-grouped History UI to fan out one HTTP call per task header.
+ */
+export function listRecoveriesByTask(
+  taskId: string,
+  limit?: number,
+  offset?: number,
+): Promise<ReceiptDTO[]> {
+  const params = new URLSearchParams();
+  if (limit) params.set("limit", String(limit));
+  if (offset) params.set("offset", String(offset));
+  const qs = params.toString();
+  return fetchJSON<ReceiptDTO[]>(
+    `/v1/recovery/list/${taskId}${qs ? `?${qs}` : ""}`,
+  );
+}
+
 export function getRecoveryDiff(receiptId: string): Promise<DiffResponse> {
   return fetchJSON<DiffResponse>(`/v1/recovery/diff/${receiptId}`);
 }
 
-export function undoRecovery(receiptId: string): Promise<Response> {
-  return fetch(`${BASE}/v1/recovery/undo/${receiptId}`, { method: "POST" });
+/**
+ * Result of a successful (or pending-approval) recovery undo.
+ *
+ * httpStatus distinguishes the two terminal-OK paths:
+ *   200 — synchronous reversal applied (FS receipts).
+ *   202 — async approval needed; the reversal will run after the user
+ *         approves at /v1/approvals/{approvalId}. Caller should poll.
+ */
+export interface UndoResult {
+  applied: boolean;
+  newStatus: string;
+  details: string;
+  approvalId?: string;
+  httpStatus: 200 | 202;
+}
+
+/**
+ * Trigger the reversal for a receipt. The backend mandates a
+ * `{"confirm": true}` body to guard against double-click accidents — the
+ * old fire-and-forget caller skipped it and silently 400'd, leaving the
+ * History "Undo" button non-functional. Throws on 4xx/5xx.
+ */
+export async function undoRecovery(receiptId: string): Promise<UndoResult> {
+  const res = await fetch(`${BASE}/v1/recovery/undo/${receiptId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
+  if (res.status !== 200 && res.status !== 202) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`undoRecovery: ${res.status} ${text}`);
+  }
+  const data = (await res.json()) as Omit<UndoResult, "httpStatus">;
+  // Backend also sets X-Approval-ID; data.approvalId is the canonical
+  // copy on the body, so the header read is redundant but harmless.
+  return { ...data, httpStatus: res.status as 200 | 202 };
 }
 
 // ---------------------------------------------------------------------------
