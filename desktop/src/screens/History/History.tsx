@@ -191,10 +191,10 @@ const ReceiptCard = memo(function ReceiptCard({
             </pre>
           </div>
 
-          {receipt.saasDeepLink && (
+          {receipt.saasUrl && (
             <a
               className="history-detail-link"
-              href={receipt.saasDeepLink}
+              href={receipt.saasUrl}
               target="_blank"
               rel="noopener noreferrer"
             >

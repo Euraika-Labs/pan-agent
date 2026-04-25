@@ -253,7 +253,13 @@ export interface ReceiptDTO {
   snapshotTier: "cow" | "copyfs" | "audit_only";
   reversalStatus: "reversible" | "audit_only" | "reversed_externally" | "irrecoverable";
   redactedPayload: string;
-  saasDeepLink?: string;
+  /**
+   * Public http(s) URL into the SaaS UI ("Open in Gmail", "View in Stripe").
+   * Only set for receipts whose `kind` is `saas_api`. Always safe to render
+   * as a link — reverser-private hints (snapshot subpaths, manual-undo
+   * targets) live in a separate column on the backend and are not exposed.
+   */
+  saasUrl?: string;
   createdAt: number;
 }
 

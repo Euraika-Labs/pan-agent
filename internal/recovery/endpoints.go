@@ -40,6 +40,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 // ReceiptDTO is the JSON shape returned by list and diff endpoints.
+//
+// SaaSURL is the only public-facing surface of the legacy SaaSDeepLink
+// concept — it is set ONLY for receipts whose Kind is KindSaaSAPI, and
+// it is always a real http(s):// URL safe to render as a link in the UI.
+// The reverser-private hint (snapshot subpath, manual-undo target) is
+// deliberately not exposed.
 type ReceiptDTO struct {
 	ID              string         `json:"id"`
 	TaskID          string         `json:"taskId"`
@@ -47,7 +53,7 @@ type ReceiptDTO struct {
 	SnapshotTier    SnapshotTier   `json:"snapshotTier"`
 	ReversalStatus  ReversalStatus `json:"reversalStatus"`
 	RedactedPayload string         `json:"redactedPayload"`
-	SaaSDeepLink    string         `json:"saasDeepLink,omitempty"`
+	SaaSURL         string         `json:"saasUrl,omitempty"`
 	CreatedAt       int64          `json:"createdAt"`
 }
 
@@ -62,7 +68,7 @@ func toDTO(r Receipt) ReceiptDTO {
 		SnapshotTier:    r.SnapshotTier,
 		ReversalStatus:  r.ReversalStatus,
 		RedactedPayload: payload,
-		SaaSDeepLink:    r.SaaSDeepLink,
+		SaaSURL:         r.SaaSURL,
 		CreatedAt:       r.CreatedAt,
 	}
 }
@@ -234,7 +240,7 @@ func (h *Handler) Diff(w http.ResponseWriter, r *http.Request) {
 // the receipt's stored payload is classified directly (covers the binary-diff
 // case where payload IS the content to inspect).
 func (h *Handler) buildAfter(_ context.Context, rec Receipt) (string, string) {
-	subpath := rec.SaaSDeepLink
+	subpath := rec.ReverserHint
 
 	// Try to read from the snapshot directory first.
 	if subpath != "" && h.snapshotter != nil {

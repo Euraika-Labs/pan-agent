@@ -182,9 +182,14 @@ components:
         redactedPayload:
           type: string
           description: Secret-redacted snapshot of the receipt payload.
-        saasDeepLink:
+        saasUrl:
           type: string
-          description: Optional deep link or snapshot subpath associated with the receipt.
+          description: |
+            Optional public http(s) URL into the SaaS UI ("Open in Gmail",
+            "View in Stripe"). Only present for receipts whose `kind` is
+            `saas_api`. Reverser-private hints (snapshot subpaths,
+            manual-undo target apps) live in a separate backend column
+            and are not exposed by the API.
         createdAt:
           type: integer
           format: int64

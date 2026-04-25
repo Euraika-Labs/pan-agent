@@ -151,7 +151,7 @@ func TestFSReverserRoundtrip(t *testing.T) {
 		t.Fatalf("Capture: %v", err)
 	}
 
-	// Record a receipt referencing the snapshot. SaaSDeepLink carries the
+	// Record a receipt referencing the snapshot. ReverserHint carries the
 	// snapshot subpath that FSReverser uses to locate the pre-mutation copy.
 	r := Receipt{
 		ID:             "rev-fs-1",
@@ -160,7 +160,7 @@ func TestFSReverserRoundtrip(t *testing.T) {
 		SnapshotTier:   info.Tier,
 		ReversalStatus: StatusReversible,
 		Payload:        []byte(srcFile),
-		SaaSDeepLink:   info.Subpath,
+		ReverserHint:   info.Subpath,
 	}
 	recordReceipt(t, j, r)
 
@@ -379,7 +379,7 @@ func TestBrowserFormReverserNeverExecutes(t *testing.T) {
 		Kind:           KindBrowserForm,
 		SnapshotTier:   TierAuditOnly,
 		ReversalStatus: StatusAuditOnly,
-		SaaSDeepLink:   "https://mail.google.com/mail/u/0/#undo",
+		ReverserHint:   "https://mail.google.com/mail/u/0/#undo",
 		Payload:        []byte(`{"form":"gmail-compose","action":"send"}`),
 	}
 	recordReceipt(t, j, r)

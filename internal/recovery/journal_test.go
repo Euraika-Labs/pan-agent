@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS action_receipts (
   reversal_status TEXT NOT NULL,
   redacted_payload TEXT,
   saas_deep_link TEXT,
+  saas_url TEXT,
+  reverser_hint TEXT,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
