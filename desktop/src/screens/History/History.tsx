@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, memo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, memo } from "react";
 import {
   History as HistoryIcon,
   RefreshCw,
@@ -12,14 +12,37 @@ import {
   Trash2,
   X,
   Clock,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
-import { listRecoveries, getRecoveryDiff, undoRecovery } from "../../api";
-import type { ReceiptDTO, DiffResponse } from "../../api";
+import {
+  listRecoveries,
+  getRecoveryDiff,
+  undoRecovery,
+  getTask,
+  getTaskEvents,
+} from "../../api";
+import type {
+  ReceiptDTO,
+  DiffResponse,
+  Task,
+  TaskEvent,
+} from "../../api";
+import { TaskHeader } from "../../components/history/TaskHeader";
+import { UndoConfirmDialog } from "../../components/history/UndoConfirmDialog";
+import {
+  groupReceiptsByTask,
+  summarizeTaskCost,
+} from "./historyGrouping";
+import type { TaskGroupData } from "./historyGrouping";
 
 interface HistoryProps {
   profile: string;
+}
+
+interface UndoState {
+  pending: boolean;
+  approvalId?: string;
+  reversed?: boolean;
+  revertedAt?: number;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -48,13 +71,7 @@ function kindLabel(kind: ReceiptDTO["kind"]): string {
   }
 }
 
-// ─── Kind icon ──────────────────────────────────────────────────────────────
-
-function KindIcon({
-  kind,
-}: {
-  kind: ReceiptDTO["kind"];
-}): React.JSX.Element {
+function KindIcon({ kind }: { kind: ReceiptDTO["kind"] }): React.JSX.Element {
   const iconProps = { size: 14, className: "history-kind-icon" };
   switch (kind) {
     case "fs_write":
@@ -85,10 +102,7 @@ const DiffModal = memo(function DiffModal({
 }): React.JSX.Element {
   return (
     <div className="history-modal-backdrop" onClick={onClose}>
-      <div
-        className="history-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="history-modal" onClick={(e) => e.stopPropagation()}>
         <div className="history-modal-header">
           <h3 className="history-modal-title">
             Diff &mdash; {receiptKind.replace("_", " ")}
@@ -97,7 +111,6 @@ const DiffModal = memo(function DiffModal({
             <X size={16} />
           </button>
         </div>
-
         <div className="history-modal-body">
           {loading ? (
             <div className="history-modal-loading">
@@ -129,34 +142,31 @@ const DiffModal = memo(function DiffModal({
   );
 });
 
-// ─── Receipt card ───────────────────────────────────────────────────────────
+// ─── Receipt row (used inside each lane) ────────────────────────────────────
 
-const ReceiptCard = memo(function ReceiptCard({
+const ReceiptRow = memo(function ReceiptRow({
   receipt,
   expanded,
   undoState,
   onToggle,
   onViewDiff,
-  onUndo,
+  onUndoClick,
 }: {
   receipt: ReceiptDTO;
   expanded: boolean;
-  undoState?: {
-    pending: boolean;
-    approvalId?: string;
-    reversed?: boolean;
-    revertedAt?: number;
-  };
+  undoState?: UndoState;
   onToggle: () => void;
   onViewDiff: () => void;
-  onUndo: () => void;
+  onUndoClick: () => void;
 }): React.JSX.Element {
   const reversible = receipt.reversalStatus === "reversible";
   const shortId = receipt.id.slice(-8);
 
   return (
     <div
-      className={`history-card ${reversible ? "history-card--reversible" : "history-card--audit"}`}
+      className={`history-card ${
+        reversible ? "history-card--reversible" : "history-card--audit"
+      }`}
     >
       <button className="history-card-summary" onClick={onToggle}>
         <div className="history-card-main">
@@ -176,15 +186,17 @@ const ReceiptCard = memo(function ReceiptCard({
               : receipt.snapshotTier}
           </span>
           <span
-            className={`history-status-badge history-status-badge--${receipt.reversalStatus.replace("_", "-")}`}
+            className={`history-status-badge history-status-badge--${receipt.reversalStatus.replace(
+              "_",
+              "-",
+            )}`}
           >
             {undoState?.reversed
-              ? "reversed"
+              ? "reverted"
               : undoState?.approvalId
                 ? "pending approval"
                 : receipt.reversalStatus.replace("_", " ")}
           </span>
-          {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </div>
       </button>
 
@@ -217,7 +229,7 @@ const ReceiptCard = memo(function ReceiptCard({
             {reversible && !undoState?.reversed && (
               <button
                 className="btn btn-sm btn-danger"
-                onClick={onUndo}
+                onClick={onUndoClick}
                 disabled={undoState?.pending}
               >
                 <Undo2 size={12} />
@@ -233,10 +245,12 @@ const ReceiptCard = memo(function ReceiptCard({
               <span className="history-reversed-label">
                 <ShieldCheck size={12} />
                 {undoState.revertedAt
-                  ? `Reverted at ${new Date(undoState.revertedAt).toLocaleTimeString(
-                      [],
-                      { hour: "2-digit", minute: "2-digit" },
-                    )}`
+                  ? `Reverted at ${new Date(
+                      undoState.revertedAt,
+                    ).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}`
                   : "Reverted"}
               </span>
             )}
@@ -247,29 +261,135 @@ const ReceiptCard = memo(function ReceiptCard({
   );
 });
 
+// ─── Lane — shared body for the two lanes inside a task group ───────────────
+
+function Lane({
+  variant,
+  receipts,
+  expandedReceiptId,
+  undoStates,
+  onToggle,
+  onViewDiff,
+  onUndoClick,
+}: {
+  variant: "reversible" | "audit";
+  receipts: ReceiptDTO[];
+  expandedReceiptId: string | null;
+  undoStates: Record<string, UndoState>;
+  onToggle: (id: string) => void;
+  onViewDiff: (id: string, kind: string) => void;
+  onUndoClick: (receipt: ReceiptDTO) => void;
+}): React.JSX.Element {
+  const title = variant === "reversible" ? "Reversible" : "Audit-only";
+  const Icon = variant === "reversible" ? Undo2 : Clock;
+  if (receipts.length === 0) return <></>;
+  return (
+    <div className={`history-lane history-lane--${variant}`}>
+      <div className="history-lane-subheader">
+        <Icon size={11} />
+        <span className="history-lane-subheader-title">{title}</span>
+        <span className="history-lane-count">{receipts.length}</span>
+      </div>
+      <div className="history-lane-list">
+        {receipts.map((r) => (
+          <ReceiptRow
+            key={r.id}
+            receipt={r}
+            expanded={expandedReceiptId === r.id}
+            undoState={undoStates[r.id]}
+            onToggle={() => onToggle(r.id)}
+            onViewDiff={() => onViewDiff(r.id, r.kind)}
+            onUndoClick={() => onUndoClick(r)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── TaskGroup — header + lanes for a single task ───────────────────────────
+
+function TaskGroup({
+  group,
+  expanded,
+  expandedReceiptId,
+  undoStates,
+  events,
+  onToggle,
+  onReceiptToggle,
+  onViewDiff,
+  onUndoClick,
+}: {
+  group: TaskGroupData;
+  expanded: boolean;
+  expandedReceiptId: string | null;
+  undoStates: Record<string, UndoState>;
+  events: TaskEvent[] | undefined;
+  onToggle: () => void;
+  onReceiptToggle: (id: string) => void;
+  onViewDiff: (id: string, kind: string) => void;
+  onUndoClick: (receipt: ReceiptDTO) => void;
+}): React.JSX.Element {
+  const summary = useMemo(
+    () => summarizeTaskCost(events ?? []),
+    [events],
+  );
+  return (
+    <div className="task-group">
+      <TaskHeader
+        taskId={group.taskId}
+        task={group.task}
+        totalCostUsd={summary.totalCostUsd}
+        sparkline={summary.sparkline}
+        receiptCount={group.receipts.length}
+        expanded={expanded}
+        freshestReceiptAt={group.receipts[0]?.createdAt ?? 0}
+        onToggle={onToggle}
+      />
+      {expanded && (
+        <div className="task-group-body">
+          <Lane
+            variant="reversible"
+            receipts={group.reversible}
+            expandedReceiptId={expandedReceiptId}
+            undoStates={undoStates}
+            onToggle={onReceiptToggle}
+            onViewDiff={onViewDiff}
+            onUndoClick={onUndoClick}
+          />
+          <Lane
+            variant="audit"
+            receipts={group.audit}
+            expandedReceiptId={expandedReceiptId}
+            undoStates={undoStates}
+            onToggle={onReceiptToggle}
+            onViewDiff={onViewDiff}
+            onUndoClick={onUndoClick}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main History screen ────────────────────────────────────────────────────
 
 function History({ profile: _profile }: HistoryProps): React.JSX.Element {
   const [receipts, setReceipts] = useState<ReceiptDTO[]>([]);
+  const [tasks, setTasks] = useState<Map<string, Task>>(new Map());
+  const [taskEvents, setTaskEvents] = useState<Map<string, TaskEvent[]>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [undoStates, setUndoStates] = useState<
-    Record<
-      string,
-      {
-        pending: boolean;
-        approvalId?: string;
-        reversed?: boolean;
-        /**
-         * Local timestamp captured when an undo succeeds. Drives the
-         * "Reverted at HH:MM" stamp; survives auto-refreshes since it's
-         * keyed by receipt ID, so the row stays in place rather than
-         * reordering when the journal status updates.
-         */
-        revertedAt?: number;
-      }
-    >
-  >({});
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set(),
+  );
+  const [expandedReceiptId, setExpandedReceiptId] = useState<string | null>(
+    null,
+  );
+  const [undoStates, setUndoStates] = useState<Record<string, UndoState>>({});
+  const [pendingUndoReceipt, setPendingUndoReceipt] =
+    useState<ReceiptDTO | null>(null);
 
   // Diff modal state
   const [diffTarget, setDiffTarget] = useState<{
@@ -281,11 +401,16 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
 
   const autoRefreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Group + sort receipts memoized off the latest fetch.
+  const groups = useMemo(
+    () => groupReceiptsByTask(receipts, tasks),
+    [receipts, tasks],
+  );
+
   const loadReceipts = useCallback(async (): Promise<void> => {
     try {
       const list = await listRecoveries(undefined, 200);
-      // Newest first
-      setReceipts(list.sort((a, b) => b.createdAt - a.createdAt));
+      setReceipts(list);
     } catch (err) {
       console.error("[History] load error:", err);
     } finally {
@@ -299,19 +424,68 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
     loadReceipts();
   }, [loadReceipts]);
 
-  // Auto-refresh every 5s
+  // Auto-refresh every 5 s — receipts only. Tasks change less often
+  // and are re-fetched lazily as new task IDs appear.
   useEffect(() => {
     if (autoRefreshTimer.current) clearInterval(autoRefreshTimer.current);
-    autoRefreshTimer.current = setInterval(() => {
-      loadReceipts();
-    }, 5000);
+    autoRefreshTimer.current = setInterval(() => loadReceipts(), 5000);
     return () => {
       if (autoRefreshTimer.current) clearInterval(autoRefreshTimer.current);
     };
   }, [loadReceipts]);
 
-  const handleToggle = useCallback((receiptId: string): void => {
-    setExpandedId((prev) => (prev === receiptId ? null : receiptId));
+  // Fan out task + events fetches whenever a new taskId shows up. Cached
+  // by ID so repeated refreshes don't re-hit /v1/tasks/* for tasks we
+  // already have. Failures are swallowed — a missing task just renders
+  // with the placeholder header (taskHeading falls back to short ID).
+  useEffect(() => {
+    if (receipts.length === 0) return;
+    const seen = new Set(receipts.map((r) => r.taskId).filter(Boolean));
+    const missingTasks = Array.from(seen).filter((id) => !tasks.has(id));
+    const missingEvents = Array.from(seen).filter((id) => !taskEvents.has(id));
+    if (missingTasks.length === 0 && missingEvents.length === 0) return;
+
+    Promise.allSettled(
+      missingTasks.map((id) =>
+        getTask(id).then((t) => ({ id, t })).catch(() => null),
+      ),
+    ).then((results) => {
+      setTasks((prev) => {
+        const next = new Map(prev);
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value) next.set(r.value.id, r.value.t);
+        }
+        return next;
+      });
+    });
+
+    Promise.allSettled(
+      missingEvents.map((id) =>
+        getTaskEvents(id).then((events) => ({ id, events })).catch(() => null),
+      ),
+    ).then((results) => {
+      setTaskEvents((prev) => {
+        const next = new Map(prev);
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value)
+            next.set(r.value.id, r.value.events);
+        }
+        return next;
+      });
+    });
+  }, [receipts, tasks, taskEvents]);
+
+  const handleReceiptToggle = useCallback((receiptId: string): void => {
+    setExpandedReceiptId((prev) => (prev === receiptId ? null : receiptId));
+  }, []);
+
+  const handleGroupToggle = useCallback((taskId: string): void => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
   }, []);
 
   const handleViewDiff = useCallback(
@@ -331,8 +505,9 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
     [],
   );
 
-  const handleUndo = useCallback(
-    async (receiptId: string): Promise<void> => {
+  const performUndo = useCallback(
+    async (receipt: ReceiptDTO): Promise<void> => {
+      const receiptId = receipt.id;
       setUndoStates((prev) => ({
         ...prev,
         [receiptId]: { pending: true },
@@ -340,15 +515,11 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
       try {
         const res = await undoRecovery(receiptId);
         if (res.httpStatus === 202) {
-          // Needs approval — caller should poll /v1/approvals/{id}.
           setUndoStates((prev) => ({
             ...prev,
             [receiptId]: { pending: false, approvalId: res.approvalId },
           }));
         } else {
-          // 200 — reversed synchronously. Stamp the local revertedAt so
-          // the row keeps its position rather than reordering (per the
-          // WS#2 design-doc "Never reorder post-revert").
           setUndoStates((prev) => ({
             ...prev,
             [receiptId]: {
@@ -375,17 +546,10 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
     setDiffData(null);
   }, []);
 
-  // Split receipts into two swim lanes
-  const reversible = receipts.filter(
-    (r) => r.reversalStatus === "reversible",
-  );
-  const auditTrail = receipts.filter(
-    (r) => r.reversalStatus !== "reversible",
-  );
+  const totalCount = receipts.length;
 
   return (
     <div className="history-container">
-      {/* Header */}
       <div className="history-header">
         <h2 className="history-title">History</h2>
         <button
@@ -400,80 +564,49 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
         </button>
       </div>
 
-      {/* Content */}
       {loading ? (
         <div className="history-loading">
           <div className="loading-spinner" />
         </div>
-      ) : receipts.length === 0 ? (
+      ) : totalCount === 0 ? (
         <div className="history-empty">
           <HistoryIcon size={32} className="history-empty-icon" />
           <p className="history-empty-text">No recovery history yet</p>
           <p className="history-empty-hint">
-            Actions taken by the agent will appear here with undo capability
+            Actions taken by the agent will appear here grouped by task,
+            with undo capability for reversible actions.
           </p>
         </div>
       ) : (
-        <div className="history-lanes">
-          {/* Lane 1: Reversible */}
-          <div className="history-lane">
-            <div className="history-lane-header">
-              <Undo2 size={14} />
-              <span className="history-lane-title">Reversible</span>
-              <span className="history-lane-count">{reversible.length}</span>
-            </div>
-            {reversible.length === 0 ? (
-              <p className="history-lane-empty">
-                No reversible actions at this time.
-              </p>
-            ) : (
-              <div className="history-lane-list">
-                {reversible.map((r) => (
-                  <ReceiptCard
-                    key={r.id}
-                    receipt={r}
-                    expanded={expandedId === r.id}
-                    undoState={undoStates[r.id]}
-                    onToggle={() => handleToggle(r.id)}
-                    onViewDiff={() => handleViewDiff(r.id, r.kind)}
-                    onUndo={() => handleUndo(r.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Lane 2: Audit Trail */}
-          <div className="history-lane">
-            <div className="history-lane-header">
-              <Clock size={14} />
-              <span className="history-lane-title">Audit Trail</span>
-              <span className="history-lane-count">{auditTrail.length}</span>
-            </div>
-            {auditTrail.length === 0 ? (
-              <p className="history-lane-empty">
-                No audit-only entries recorded.
-              </p>
-            ) : (
-              <div className="history-lane-list">
-                {auditTrail.map((r) => (
-                  <ReceiptCard
-                    key={r.id}
-                    receipt={r}
-                    expanded={expandedId === r.id}
-                    undoState={undoStates[r.id]}
-                    onToggle={() => handleToggle(r.id)}
-                    onViewDiff={() => handleViewDiff(r.id, r.kind)}
-                    onUndo={() => handleUndo(r.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="history-groups">
+          {groups.map((g) => (
+            <TaskGroup
+              key={g.taskId}
+              group={g}
+              expanded={!collapsedGroups.has(g.taskId)}
+              expandedReceiptId={expandedReceiptId}
+              undoStates={undoStates}
+              events={taskEvents.get(g.taskId)}
+              onToggle={() => handleGroupToggle(g.taskId)}
+              onReceiptToggle={handleReceiptToggle}
+              onViewDiff={handleViewDiff}
+              onUndoClick={(receipt) => setPendingUndoReceipt(receipt)}
+            />
+          ))}
         </div>
       )}
 
-      {/* Diff modal */}
+      <UndoConfirmDialog
+        receipt={pendingUndoReceipt}
+        onConfirm={() => {
+          if (pendingUndoReceipt) {
+            performUndo(pendingUndoReceipt);
+          }
+          setPendingUndoReceipt(null);
+        }}
+        onCancel={() => setPendingUndoReceipt(null)}
+      />
+
       {diffTarget && (
         <DiffModal
           diff={diffData}
