@@ -1,6 +1,8 @@
 // Prevents an additional console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod permissions;
+
 use std::sync::Mutex;
 
 use tauri::{Manager, RunEvent};
@@ -14,6 +16,11 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            permissions::permissions_probe,
+            permissions::permissions_request_screen_recording,
+            permissions::permissions_open_settings,
+        ])
         .setup(|app| {
             let parent_pid = std::process::id().to_string();
 

@@ -488,6 +488,212 @@ body {
   justify-content: flex-start;
 }
 
+/* ─── WS#5 macOS Permissions wizard step ─────────────────────────────────── */
+
+.setup-step--permissions {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.perm-loading,
+.perm-skipped {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.perm-skipped {
+  color: var(--status-ok);
+}
+
+.perm-header h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg);
+  margin: 0 0 6px;
+}
+
+.perm-header p {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.perm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.perm-row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.perm-row--required {
+  border-color: var(--border-strong);
+}
+
+.perm-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--accent);
+}
+
+.perm-row-body {
+  min-width: 0;
+}
+
+.perm-row-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.perm-row-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-muted);
+}
+
+.perm-row-status--granted {
+  color: var(--status-ok);
+  border-color: var(--status-ok);
+  background: var(--status-ok-bg);
+}
+
+.perm-row-status--denied {
+  color: var(--status-err);
+  border-color: var(--status-err);
+  background: var(--status-err-bg);
+}
+
+.perm-row-status--pending {
+  color: var(--status-warn);
+  border-color: var(--status-warn);
+  background: var(--status-warn-bg);
+}
+
+.perm-row-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+  margin: 4px 0 0;
+}
+
+.perm-row-actions {
+  display: flex;
+  align-items: center;
+}
+
+.perm-row-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter var(--transition);
+}
+
+.perm-row-cta:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.perm-row-cta:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.perm-row-cta:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.perm-blockers {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--status-warn-bg);
+  border: 1px solid var(--status-warn);
+  color: var(--status-warn);
+}
+
+.perm-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.setup-btn--primary {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: filter var(--transition);
+}
+
+.setup-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.setup-btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.perm-dev-stub {
+  font-size: 11px;
+  color: var(--fg-faint);
+  font-style: italic;
+}
+
 .setup-title {
   font-size: 22px;
   font-weight: 700;
