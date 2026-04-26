@@ -19,6 +19,12 @@
 
 use serde::Serialize;
 
+// `Denied`, `NotDetermined`, and `Unknown` are only constructed by the
+// macOS-gated `imp` module (and serialized over IPC into the React
+// PermissionsReport DTO). On Linux/Windows clippy's dead-code lint can't
+// see those construction sites — gate the warning rather than splitting
+// the enum, since that would force every consumer to also cfg-branch.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PermStatus {
