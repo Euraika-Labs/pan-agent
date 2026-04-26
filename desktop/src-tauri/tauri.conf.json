@@ -48,6 +48,9 @@
     "externalBin": [
       "binaries/pan-agent"
     ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
     "windows": {
       "nsis": {
         "languages": ["English"],

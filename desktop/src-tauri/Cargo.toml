@@ -10,5 +10,13 @@ tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Phase 12 WS#5 — macOS permission probes for the Setup wizard.
+# core-graphics provides CGPreflight/RequestScreenCaptureAccess; the
+# AXIsProcessTrusted symbol is declared via a small extern block in
+# permissions.rs (no crate covers it stably).
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.24"
+core-foundation = "0.10"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
