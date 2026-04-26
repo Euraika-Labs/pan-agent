@@ -12,6 +12,7 @@ function report(overrides: Partial<PermissionsReport> = {}): PermissionsReport {
     automation: "granted",
     full_disk: "granted",
     platform_supported: true,
+    mdm_managed: false,
     ...overrides,
   };
 }
@@ -60,6 +61,23 @@ describe("canFinishWizard", () => {
       "accessibility",
       "screen_recording",
     ]);
+  });
+
+  it("blocks MDM-managed hosts until the proceed-at-your-own-risk checkbox is ticked", () => {
+    const r = report({ mdm_managed: true });
+    expect(canFinishWizard(r, false)).toBe(false);
+    expect(canFinishWizard(r, true)).toBe(true);
+  });
+
+  it("on MDM hosts, missing required perms still blocks regardless of the checkbox", () => {
+    const r = report({ mdm_managed: true, accessibility: "denied" });
+    expect(canFinishWizard(r, true)).toBe(false);
+    expect(canFinishWizard(r, false)).toBe(false);
+  });
+
+  it("non-MDM hosts ignore the mdmAcknowledged argument", () => {
+    expect(canFinishWizard(report({ mdm_managed: false }), false)).toBe(true);
+    expect(canFinishWizard(report({ mdm_managed: false }), true)).toBe(true);
   });
 });
 

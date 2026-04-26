@@ -20,12 +20,25 @@ export type RequiredPerm = (typeof REQUIRED_PERMS)[number];
 /**
  * True when the user can advance past the wizard step. On non-macOS
  * platforms (`platform_supported === false`) the gate is always open.
+ *
+ * On MDM-managed macOS hosts (officially unsupported per design D10)
+ * the gate also requires `mdmAcknowledged` — the React wizard surfaces
+ * a "proceed at your own risk" checkbox. This is checked AFTER the
+ * normal required-perms gate, so an MDM user who hasn't granted the
+ * core permissions still sees the missing permissions, not just the
+ * MDM blocker.
  */
-export function canFinishWizard(report: PermissionsReport): boolean {
+export function canFinishWizard(
+  report: PermissionsReport,
+  mdmAcknowledged: boolean = false,
+): boolean {
   if (!report.platform_supported) return true;
-  return REQUIRED_PERMS.every(
+  const permsGranted = REQUIRED_PERMS.every(
     (perm) => report[perm] === "granted",
   );
+  if (!permsGranted) return false;
+  if (report.mdm_managed && !mdmAcknowledged) return false;
+  return true;
 }
 
 /**
@@ -50,6 +63,10 @@ export function ctaLabel(
  * programmatic prompt API for it. AX + Automation + FDA all require
  * the user to flip a toggle in System Settings; only Screen Recording
  * has a CGRequestScreenCaptureAccess() that pops the system prompt.
+ *
+ * `platform_supported` and `mdm_managed` are flag fields on the DTO,
+ * not actual permissions, so they map to false (callers don't
+ * iterate on them as if they were permission rows).
  */
 export const HAS_PROGRAMMATIC_PROMPT: Record<keyof PermissionsReport, boolean> =
   {
@@ -58,4 +75,5 @@ export const HAS_PROGRAMMATIC_PROMPT: Record<keyof PermissionsReport, boolean> =
     automation: false,
     full_disk: false,
     platform_supported: false,
+    mdm_managed: false,
   };
