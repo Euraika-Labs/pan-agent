@@ -81,3 +81,9 @@
 /v1/rag/search
 /v1/rag/sessions/{id}/embeddings
 /v1/rag/health
+
+# --- marketplace: Phase 13 WS#13.C signed-bundle install. JSON shapes
+# stabilise alongside the desktop Marketplace.tsx that's the next slice.
+/v1/marketplace/install
+/v1/marketplace/trusted
+/v1/marketplace/trusted/{fingerprint}
