@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -15,10 +16,27 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/approval"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/persona"
+	"github.com/euraika-labs/pan-agent/internal/secret"
 	"github.com/euraika-labs/pan-agent/internal/skills"
 	"github.com/euraika-labs/pan-agent/internal/storage"
 	"github.com/euraika-labs/pan-agent/internal/tools"
 )
+
+// promptRedactionEnabled returns true when the WS#13.G prompt-redaction
+// pipeline should rewrite outbound LLM messages. Gated by an env var so
+// the feature can roll out behind a flag — default off until the
+// streaming-fragment edge cases are exercised in the wild.
+//
+// Set PAN_AGENT_REDACT_PROMPTS=1 (or any truthy non-empty non-"0"
+// value) to enable. Reads on every call to keep tests cheap; the cost
+// is negligible compared to the LLM round-trip.
+func promptRedactionEnabled() bool {
+	v := os.Getenv("PAN_AGENT_REDACT_PROMPTS")
+	if v == "" || v == "0" || strings.EqualFold(v, "false") {
+		return false
+	}
+	return true
+}
 
 // =============================================================================
 // Request / response types
@@ -231,6 +249,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	const maxTurns = 20 // safety cap to prevent runaway loops
 	budgetWarned := false
 
+	// Prompt-redaction mapping lives for the whole streaming session
+	// so identical plaintexts dedupe to the same counter token across
+	// every turn. Disabled when the env-var gate is off — in that case
+	// the helpers run but produce identity transforms (mapping unused).
+	var redactMap *secret.ReversibleMap
+	if promptRedactionEnabled() {
+		redactMap = secret.NewReversibleMap()
+		defer redactMap.Clear()
+	}
+
 	for turn := 0; turn < maxTurns; turn++ {
 		// ---------------------------------------------- budget gate
 		if costCap := s.sessionCostCap(sessionID); costCap > 0 {
@@ -244,7 +272,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// --------------------------------------------------- call LLM
-		ch, err := client.ChatStream(ctx, msgs, req.Tools)
+		// Outbound redaction: rewrite secrets in msgs (Content +
+		// tool-call args) using the per-session counter mapping. The
+		// model sees `<REDACTED:CAT:N>` literals; the un-redact pass
+		// below restores plaintext on every chunk + tool call.
+		outMsgs := msgs
+		if redactMap != nil {
+			outMsgs = llm.RedactMessages(msgs, redactMap, secret.Policy{})
+		}
+		ch, err := client.ChatStream(ctx, outMsgs, req.Tools)
 		if err != nil {
 			sendSSE(w, sseEvent{Type: "error", Error: "LLM error: " + err.Error()})
 			sendDone(w)
@@ -262,13 +298,22 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			switch ev.Type {
 
 			case "chunk":
-				assistantContent += ev.Content
-				sendSSE(w, sseEvent{Type: "chunk", Content: ev.Content})
+				// Inbound un-redaction: restore plaintext for the
+				// user-visible stream and the persisted assistant
+				// message. Pass-through when redactMap is nil.
+				content := llm.UnRedactChunk(ev.Content, redactMap)
+				assistantContent += content
+				sendSSE(w, sseEvent{Type: "chunk", Content: content})
 
 			case "tool_call":
 				if ev.ToolCall != nil {
-					toolCalls = append(toolCalls, *ev.ToolCall)
-					sendSSE(w, sseEvent{Type: "tool_call", ToolCall: ev.ToolCall})
+					tc := *ev.ToolCall
+					// Un-redact tool-call arguments BEFORE the tool
+					// executor + the appended history sees them, so
+					// downstream code consumes plaintext.
+					llm.UnRedactToolCall(&tc, redactMap)
+					toolCalls = append(toolCalls, tc)
+					sendSSE(w, sseEvent{Type: "tool_call", ToolCall: &tc})
 				}
 
 			case "usage":
@@ -547,8 +592,20 @@ func (s *Server) runAgentLoop(ctx context.Context, sessionID string, userMessage
 	const maxTurns = 20
 	var finalContent string
 
+	// Same redaction posture as streamChat — env-gated, mapping shared
+	// across turns so dedup holds.
+	var redactMap *secret.ReversibleMap
+	if promptRedactionEnabled() {
+		redactMap = secret.NewReversibleMap()
+		defer redactMap.Clear()
+	}
+
 	for turn := 0; turn < maxTurns; turn++ {
-		ch, err := client.ChatStream(ctx, msgs, nil)
+		outMsgs := msgs
+		if redactMap != nil {
+			outMsgs = llm.RedactMessages(msgs, redactMap, secret.Policy{})
+		}
+		ch, err := client.ChatStream(ctx, outMsgs, nil)
 		if err != nil {
 			return "", fmt.Errorf("LLM error: %w", err)
 		}
@@ -559,10 +616,12 @@ func (s *Server) runAgentLoop(ctx context.Context, sessionID string, userMessage
 		for ev := range ch {
 			switch ev.Type {
 			case "chunk":
-				assistantContent += ev.Content
+				assistantContent += llm.UnRedactChunk(ev.Content, redactMap)
 			case "tool_call":
 				if ev.ToolCall != nil {
-					toolCalls = append(toolCalls, *ev.ToolCall)
+					tc := *ev.ToolCall
+					llm.UnRedactToolCall(&tc, redactMap)
+					toolCalls = append(toolCalls, tc)
 				}
 			case "error":
 				return "", fmt.Errorf("LLM error: %s", ev.Error)
