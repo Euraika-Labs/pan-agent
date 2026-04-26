@@ -7,6 +7,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-26
+
+Phase 12 frontend round — every workstream's React/Tauri counterpart
+shipped, plus the v0.7.0 audit-lane substrate sealed ahead of Phase 13.
+WS#5 macOS permission wizard closes the v0.5.0 ship-gate.
+
+### Added
+- **Brand system** (`desktop/src/assets/`) — oklch-based `--brand-navy`
+  / `--brand-gold` / `--brand-cream` tokens replace flat-hex
+  `--bg-primary` / `--accent` / `--warning` / `--error` etc. Bricolage
+  Grotesque variable font, brand assets under
+  `desktop/src/assets/branding/`. Light + dark themes regenerated.
+- **WS#1 cost-pill UI**
+  ([#25](https://github.com/Euraika-Labs/pan-agent/pull/25)) —
+  focus-trapped `<BudgetExceededDialog>` at 100% of cap (`[Increase 2x]`,
+  `[Increase custom…]`, `[End session]`); `BudgetBanner` trimmed to the
+  80% amber warning. New `GET /v1/sessions/{id}/info` endpoint +
+  `getSession()` mount-seed so the cost pill survives navigation rather
+  than resetting to `$0/$0` until the next budget SSE event.
+- **WS#2 task-grouped History**
+  ([#26](https://github.com/Euraika-Labs/pan-agent/pull/26)) — flat
+  list rewritten as `<TaskGroup>` per `task_id` with header
+  (plan-derived name, status badge, total cost, duration, freshest
+  receipt timestamp, inline `<CostSparkline>`) plus REVERSIBLE /
+  AUDIT-ONLY sub-lanes. "Reverted at HH:MM" stamp replaces the Undo
+  button in place — never reorders post-revert. New
+  `<UndoConfirmDialog>` with kind-aware copy + redacted payload preview
+  gates the actual reversal call. Lazy fan-out of `getTask` +
+  `getTaskEvents` per unique receipt `taskId`.
+- **WS#5 macOS permission onboarding wizard**
+  ([#27](https://github.com/Euraika-Labs/pan-agent/pull/27)) — new
+  Tauri `permissions.rs` module with public-API-only TCC probes
+  (`AXIsProcessTrusted` for Accessibility, `CGPreflightScreenCaptureAccess`
+  for Screen Recording, `osascript` no-op against Finder for
+  Automation, `~/Library/Safari/Bookmarks.plist` heuristic for FDA).
+  Three new Tauri commands + new `Permissions.tsx` step in Setup with
+  1s polling, block-until-granted gate (Accessibility + Screen
+  Recording required; Automation + FDA optional/lazy), Raycast "Open
+  Settings (previously denied)" label flip. `Info.plist` ships with
+  user-focused usage descriptions for AX, Screen Capture, Apple
+  Events, and System Administration. Auto-skips on non-macOS and in
+  plain Vite dev (no Tauri shell).
+- **Approval polling on History undo**
+  ([#29](https://github.com/Euraika-Labs/pan-agent/pull/29)) — when
+  `undoRecovery` returns 202 with an `approvalId`, History starts a
+  per-receipt 2s poller against `GET /v1/approvals/{id}` so the
+  reverted-stamp lands within ~2s of human approval rather than
+  waiting on the 5s journal-list refresh. Pollers cleared on unmount;
+  rejected approvals reset the row's Undo button.
+- **MDM unsupported banner**
+  ([#29](https://github.com/Euraika-Labs/pan-agent/pull/29)) —
+  `permissions.rs` shells `profiles -P` and exposes `mdm_managed` on
+  the report. Wizard surfaces a red banner + "proceed at your own
+  risk" checkbox that gates Finish on MDM-managed hosts (D10 / Q3).
+- **`internal/saaslinks/`** — sealed Gmail / Stripe / Google Calendar
+  deep-link library
+  ([#29](https://github.com/Euraika-Labs/pan-agent/pull/29)). Pure
+  URL builders (`Gmail`, `Stripe`, `StripeWithAccount`, `GCal`) with
+  comprehensive ID-injection guards (regex-validated before
+  interpolation). New audit-only `SaaSAPIReverser` registered with the
+  recovery `Registry` so `KindSaaSAPI` receipts no longer hit
+  `ErrNoReverserRegistered` once Phase 13 SaaS tools land. 13 unit
+  tests including base64URL stdlib byte-for-byte parity.
+
+### Changed
+- **Recovery: query-param rename to `session_id`**
+  ([#25](https://github.com/Euraika-Labs/pan-agent/pull/25)) —
+  `GET /v1/recovery/list` read camelCase `sessionID` while every other
+  backend handler used snake_case. Any session-scoped recovery list
+  was silently returning all receipts unfiltered. Now consistent
+  across the codebase and OpenAPI spec.
+- **Recovery DTO: `SaaSDeepLink` split**
+  ([#25](https://github.com/Euraika-Labs/pan-agent/pull/25)) — the
+  single overloaded field carried three semantics (FS snapshot
+  subpath, browser manual-undo hint, future SaaS API URL). Replaced
+  with `SaaSURL` (public http(s), JSON-exposed as `saasUrl`,
+  omitempty, only set for `kind=saas_api`) + `ReverserHint`
+  (reverser-private, never serialized). Idempotent backfill migration
+  in `migrateActionReceiptsSaasSplit`; legacy `saas_deep_link` column
+  kept for downgrade safety.
+- **Brand-system token migration**
+  ([#25](https://github.com/Euraika-Labs/pan-agent/pull/25)) —
+  CostPill, BudgetBanner, History, Permissions wizard, and dialog
+  styles all switched off `--warning` / `--error` / `--bg-primary` to
+  oklch `--status-warn` / `--status-err` / `--surface` / `--bg`.
+  Killed two duplicate `--surface` declarations that were silently
+  shadowed in `:root` and `[data-theme="light"]`.
+- **Session-detail endpoint** — added
+  `GET /v1/sessions/{id}/info` returning the full Session record (the
+  existing `GET /v1/sessions/{id}` is a historical alias for the
+  message list and was kept for backward compatibility).
+
+### Fixed
+- **macOS 15+ build regression**
+  ([#25](https://github.com/Euraika-Labs/pan-agent/pull/25)) —
+  bumped `kbinani/screenshot` from `v0.0.0-20230812` to
+  `v0.0.0-20250624`. The pinned 2023 version called
+  `CGDisplayCreateImageForRect`, obsoleted by Apple in macOS 15. Five
+  packages (`cmd/pan-agent`, `gateway`, `taskrunner`, `tools`,
+  `tools/interact`) failed to compile under fresh CGo cache on
+  current Apple SDKs.
+- **History "Undo" was silently broken**
+  ([#25](https://github.com/Euraika-Labs/pan-agent/pull/25)) — the
+  desktop client's `undoRecovery()` sent no body, so every Undo click
+  400'd against the backend's required `{"confirm": true}` guard. Now
+  sends the body, throws on 4xx/5xx, returns a typed
+  `UndoResult { applied, newStatus, details, approvalId?, httpStatus }`.
+- **CodeQL: `go/unsafe-quoting`** in `cmd/pan-agent/main.go:158`
+  ([#28](https://github.com/Euraika-Labs/pan-agent/pull/28); closes
+  GitHub security alerts #101 + #102, both warning / critical
+  security severity) — cron-fired task plan was assembled via
+  `fmt.Sprintf` template into a JSON literal. Replaced with
+  `json.Marshal` on a typed struct via a new `buildCronPlanJSON`
+  helper. Adversarial-input regression test covers raw quotes /
+  backslashes / newlines / control bytes / unicode.
+
+### Deferred to Phase 13
+- ARIA-YAML accessibility layer + direct-API cookbook skills (WS#3
+  desktop side).
+- Standalone Tasks UI surface.
+- Gmail / Stripe / Google Calendar tool implementations that produce
+  `KindSaaSAPI` receipts (the `internal/saaslinks/` library and the
+  `SaaSAPIReverser` stub seal the contract ahead of those landing).
+- Slack / Notion / Jira deep-links (out of v0.6.0 scope per WS#2
+  audit-lane spec).
+
 ## [0.5.0] - 2026-04-24
 
 Phase 12 "Trust-First Desktop Automation" — Go backend implementation
