@@ -6,6 +6,7 @@
 //	pan-agent chat   [--model X]   [--profile P]        Interactive CLI chat
 //	pan-agent version                                   Print version info
 //	pan-agent doctor                                    Check system health
+//	pan-agent skill  verify <bundle-path>               Verify a marketplace bundle
 //
 // Default (no subcommand): serve
 package main
@@ -67,8 +68,10 @@ func run(args []string) error {
 		// the full gateway (e.g., on a headless box just to pre-populate
 		// the DB before the first UI launch).
 		return cmdMigrateOffice(args)
+	case "skill":
+		return cmdSkill(args)
 	default:
-		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor|migrate-office>", sub)
+		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor|migrate-office|skill>", sub)
 	}
 }
 
