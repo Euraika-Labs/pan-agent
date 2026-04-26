@@ -20,6 +20,13 @@ export interface PermissionsReport {
   full_disk: PermStatus;
   /** False on platforms without TCC (Linux, Windows). */
   platform_supported: boolean;
+  /**
+   * True when `profiles -P` reports at least one installed
+   * configuration profile. Phase 12 design D10 declares MDM-managed
+   * macOS officially unsupported — the wizard surfaces a banner and
+   * requires a "proceed at your own risk" checkbox to advance.
+   */
+  mdm_managed: boolean;
 }
 
 export type SettingsPane =
@@ -54,6 +61,7 @@ export async function probePermissions(): Promise<PermissionsReport> {
       automation: "granted",
       full_disk: "granted",
       platform_supported: false,
+      mdm_managed: false,
     };
   }
   return invoke<PermissionsReport>("permissions_probe");

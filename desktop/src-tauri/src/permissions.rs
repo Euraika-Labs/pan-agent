@@ -43,6 +43,12 @@ pub struct PermissionsReport {
     /// True on platforms where TCC doesn't apply (Linux, Windows). The
     /// React side reads this and skips the wizard step.
     pub platform_supported: bool,
+    /// True when the host appears to be MDM-managed (per `profiles -P`
+    /// output containing at least one configuration profile). Phase 12
+    /// design decision D10 declares MDM-managed macOS officially
+    /// unsupported — the wizard surfaces a banner and gates Finish on
+    /// an explicit "proceed at your own risk" checkbox.
+    pub mdm_managed: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -73,12 +79,34 @@ mod imp {
         let screen_recording = probe_screen_recording();
         let automation = probe_automation();
         let full_disk = probe_full_disk();
+        let mdm_managed = probe_mdm();
         PermissionsReport {
             accessibility,
             screen_recording,
             automation,
             full_disk,
             platform_supported: true,
+            mdm_managed,
+        }
+    }
+
+    /// Best-effort MDM detection. `profiles -P` lists installed
+    /// configuration profiles; an MDM-managed host has at least one.
+    /// On unmanaged hosts the command prints "There are no configuration
+    /// profiles installed". Failures (binary missing, permission denied)
+    /// are treated as unmanaged — the banner is conservative-by-default.
+    fn probe_mdm() -> bool {
+        let out = Command::new("/usr/bin/profiles").arg("-P").output();
+        match out {
+            Ok(o) => {
+                let combined = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr),
+                );
+                !combined.contains("no configuration profiles") && !combined.is_empty()
+            }
+            Err(_) => false,
         }
     }
 
@@ -206,6 +234,7 @@ mod imp {
             automation: PermStatus::Granted,
             full_disk: PermStatus::Granted,
             platform_supported: false,
+            mdm_managed: false,
         }
     }
 

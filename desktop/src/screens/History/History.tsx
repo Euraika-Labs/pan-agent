@@ -19,6 +19,7 @@ import {
   undoRecovery,
   getTask,
   getTaskEvents,
+  getApproval,
 } from "../../api";
 import type {
   ReceiptDTO,
@@ -401,6 +402,21 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
 
   const autoRefreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Active approval pollers keyed by receipt ID. Each poller fetches
+  // GET /v1/approvals/{approvalId} every 2 s until the status becomes
+  // "approved" (reversal will run server-side, stamp revertedAt locally
+  // + refresh receipts) or "rejected" (clear undo state, return the
+  // row's Undo button to "Undo"). Cleared on unmount.
+  const approvalTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map(),
+  );
+  useEffect(() => {
+    return () => {
+      for (const t of approvalTimers.current.values()) clearInterval(t);
+      approvalTimers.current.clear();
+    };
+  }, []);
+
   // Group + sort receipts memoized off the latest fetch.
   const groups = useMemo(
     () => groupReceiptsByTask(receipts, tasks),
@@ -505,6 +521,61 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
     [],
   );
 
+  const startApprovalPoll = useCallback(
+    (receiptId: string, approvalId: string) => {
+      // Replace any existing poller for this receipt — defensive in case
+      // the user fires Undo a second time before the previous one
+      // resolves (shouldn't happen given the gating, but cheap).
+      const existing = approvalTimers.current.get(receiptId);
+      if (existing) clearInterval(existing);
+
+      const tick = async () => {
+        try {
+          const a = await getApproval(approvalId);
+          if (a.status === "pending") return;
+          // Terminal — kill this poller.
+          const t = approvalTimers.current.get(receiptId);
+          if (t) {
+            clearInterval(t);
+            approvalTimers.current.delete(receiptId);
+          }
+          if (a.status === "approved") {
+            // Backend kicks off the reversal as part of Resolve. Stamp
+            // locally so the row shows "Reverted at HH:MM" without
+            // waiting on the 5 s journal refresh; the next refresh will
+            // confirm by transitioning the receipt's reversal_status.
+            setUndoStates((prev) => ({
+              ...prev,
+              [receiptId]: {
+                pending: false,
+                reversed: true,
+                revertedAt: Date.now(),
+              },
+            }));
+            await loadReceipts();
+          } else {
+            // Rejected — clear pending state so the row's Undo button
+            // becomes interactive again.
+            setUndoStates((prev) => ({ ...prev, [receiptId]: { pending: false } }));
+          }
+        } catch (err) {
+          // Transient network failure — keep polling. Permanent errors
+          // (404 = approval garbage-collected, etc.) get logged but
+          // don't crash the loop; the next refresh of receipts will
+          // reconcile the journal state.
+          console.warn(`[History] approval poll error (${approvalId}):`, err);
+        }
+      };
+
+      // Fire once immediately so a fast approval lands without a 2 s
+      // wait, then settle into the cadence.
+      void tick();
+      const id = setInterval(() => void tick(), 2000);
+      approvalTimers.current.set(receiptId, id);
+    },
+    [loadReceipts],
+  );
+
   const performUndo = useCallback(
     async (receipt: ReceiptDTO): Promise<void> => {
       const receiptId = receipt.id;
@@ -519,6 +590,9 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
             ...prev,
             [receiptId]: { pending: false, approvalId: res.approvalId },
           }));
+          if (res.approvalId) {
+            startApprovalPoll(receiptId, res.approvalId);
+          }
         } else {
           setUndoStates((prev) => ({
             ...prev,
@@ -538,7 +612,7 @@ function History({ profile: _profile }: HistoryProps): React.JSX.Element {
         }));
       }
     },
-    [loadReceipts],
+    [loadReceipts, startApprovalPoll],
   );
 
   const closeDiffModal = useCallback(() => {

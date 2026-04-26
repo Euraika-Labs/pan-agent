@@ -116,6 +116,7 @@ func NewRegistry(j *Journal, s *Snapshotter, opts ...RegistryOption) *Registry {
 		shellExec: cfg.shellExec,
 	})
 	r.Register(&BrowserFormReverser{j: j})
+	r.Register(&SaaSAPIReverser{j: j})
 	return r
 }
 
@@ -321,6 +322,44 @@ func (b *BrowserFormReverser) Reverse(_ context.Context, r Receipt) (ReverseResu
 	details := "Manual reversal required"
 	if r.ReverserHint != "" {
 		details += ": " + r.ReverserHint
+	}
+	return ReverseResult{
+		Applied:   false,
+		NewStatus: StatusAuditOnly,
+		Details:   details,
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// SaaSAPIReverser
+// ---------------------------------------------------------------------------
+
+// SaaSAPIReverser handles KindSaaSAPI receipts. Like BrowserFormReverser
+// it is strictly AUDIT-ONLY — pan-agent does not invent inverse SaaS API
+// calls, because for most providers the safe undo (un-send a Gmail
+// thread, refund a Stripe charge, delete a Calendar event) requires
+// human judgement about scope.
+//
+// Phase 12 / WS#2 audit-lane behaviour: surface the SaaSURL to the
+// History UI as an "Open in Gmail / View in Stripe" link, attach a
+// short prose hint to the receipt details, and never actually call
+// out to the SaaS during reversal. The desktop UI already renders
+// receipt.saasUrl as a clickable anchor when present.
+//
+// SaaS tools that produce these receipts arrive in Phase 13; until
+// then no production receipt has KindSaaSAPI, so this reverser exists
+// purely to seal the contract — registering it eliminates the
+// ErrNoReverserRegistered failure mode the moment those tools ship.
+type SaaSAPIReverser struct {
+	j *Journal
+}
+
+func (s *SaaSAPIReverser) Kind() ReceiptKind { return KindSaaSAPI }
+
+func (s *SaaSAPIReverser) Reverse(_ context.Context, r Receipt) (ReverseResult, error) {
+	details := "Action recorded — requires manual reversal in the source service"
+	if r.SaaSURL != "" {
+		details += " (" + r.SaaSURL + ")"
 	}
 	return ReverseResult{
 		Applied:   false,

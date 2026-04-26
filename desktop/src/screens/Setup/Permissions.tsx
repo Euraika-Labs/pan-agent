@@ -103,6 +103,7 @@ const POLL_INTERVAL_MS = 1000;
 export function Permissions({ onComplete }: PermissionsProps): React.JSX.Element {
   const [report, setReport] = useState<PermissionsReport | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [mdmAcknowledged, setMdmAcknowledged] = useState(false);
   const finishRef = useRef<HTMLButtonElement>(null);
 
   // 1 s poll while the wizard step is mounted. Cheap — every probe is
@@ -130,6 +131,7 @@ export function Permissions({ onComplete }: PermissionsProps): React.JSX.Element
           automation: "unknown",
           full_disk: "unknown",
           platform_supported: false,
+          mdm_managed: false,
         });
         onComplete();
       }
@@ -144,7 +146,7 @@ export function Permissions({ onComplete }: PermissionsProps): React.JSX.Element
 
   // Pre-focus the Finish button as soon as it becomes enabled.
   useEffect(() => {
-    if (report && canFinishWizard(report)) {
+    if (report && canFinishWizard(report, mdmAcknowledged)) {
       finishRef.current?.focus();
     }
   }, [report]);
@@ -190,7 +192,7 @@ export function Permissions({ onComplete }: PermissionsProps): React.JSX.Element
     }
   }
 
-  const ready = canFinishWizard(report);
+  const ready = canFinishWizard(report, mdmAcknowledged);
   const blockers = ROWS.filter(
     (r) => r.required && report[r.key] !== "granted",
   );
@@ -265,6 +267,33 @@ export function Permissions({ onComplete }: PermissionsProps): React.JSX.Element
                 {i < blockers.length - 1 ? ", " : ""}
               </span>
             ))}
+          </div>
+        </div>
+      )}
+
+      {report.mdm_managed && (
+        <div
+          className="perm-mdm-banner"
+          role="alert"
+          aria-labelledby="perm-mdm-title"
+        >
+          <AlertCircle size={16} aria-hidden="true" />
+          <div className="perm-mdm-banner-body">
+            <strong id="perm-mdm-title">Managed device detected</strong>
+            <p>
+              Pan-Agent does not officially support MDM-managed macOS hosts —
+              your organisation's profile may interfere with TCC grants and
+              cause the agent to misbehave in subtle ways. Reach out to your
+              IT admin if anything looks off.
+            </p>
+            <label className="perm-mdm-checkbox">
+              <input
+                type="checkbox"
+                checked={mdmAcknowledged}
+                onChange={(e) => setMdmAcknowledged(e.target.checked)}
+              />
+              <span>Proceed at your own risk</span>
+            </label>
           </div>
         </div>
       )}
