@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, memo } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, memo } from "react";
 import {
   RefreshCw,
   ListChecks,
@@ -23,13 +23,26 @@ import {
   resumeTask,
   cancelTask,
 } from "../../api";
-import type { Task, TaskStatus, TaskEvent, TaskEventKind } from "../../api";
+import type { Task, TaskEvent, TaskEventKind } from "../../api";
+import {
+  costState,
+  formatCostLabel,
+  formatLastHeartbeat,
+  formatTaskDuration,
+  groupTasks,
+  hasActiveTask,
+  isTerminal,
+  truncate,
+} from "./tasksGrouping";
+import { summarizeTaskCost } from "../History/historyGrouping";
+import { CostSparkline } from "../../components/history/CostSparkline";
+import { CancelConfirmDialog } from "../../components/tasks/CancelConfirmDialog";
 
 interface TasksProps {
   profile: string;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Local helpers ──────────────────────────────────────────────────────────
 
 function formatTime(ts: number): string {
   const date = new Date(ts * 1000);
@@ -43,59 +56,6 @@ function formatFullDate(ts: number): string {
     ", " +
     date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   );
-}
-
-type DateGroup = "Today" | "Yesterday" | "Earlier";
-
-function getDateGroup(ts: number): DateGroup {
-  const date = new Date(ts * 1000);
-  const now = new Date();
-
-  const isToday =
-    date.getDate() === now.getDate() &&
-    date.getMonth() === now.getMonth() &&
-    date.getFullYear() === now.getFullYear();
-  if (isToday) return "Today";
-
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday =
-    date.getDate() === yesterday.getDate() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getFullYear() === yesterday.getFullYear();
-  if (isYesterday) return "Yesterday";
-
-  return "Earlier";
-}
-
-function groupTasks(
-  tasks: Task[],
-): Array<{ label: DateGroup; tasks: Task[] }> {
-  const groups = new Map<DateGroup, Task[]>();
-  for (const t of tasks) {
-    const group = getDateGroup(t.created_at);
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group)!.push(t);
-  }
-  const order: DateGroup[] = ["Today", "Yesterday", "Earlier"];
-  return order
-    .filter((label) => groups.has(label))
-    .map((label) => ({ label, tasks: groups.get(label)! }));
-}
-
-const TERMINAL_STATUSES: TaskStatus[] = ["succeeded", "failed", "cancelled"];
-
-function isTerminal(status: TaskStatus): boolean {
-  return TERMINAL_STATUSES.includes(status);
-}
-
-function hasActiveTask(tasks: Task[]): boolean {
-  return tasks.some((t) => t.status === "running" || t.status === "queued");
-}
-
-function truncate(s: string, n: number): string {
-  if (s.length <= n) return s;
-  return s.slice(0, n) + "…";
 }
 
 // ─── Event kind icon ─────────────────────────────────────────────────────────
@@ -191,6 +151,23 @@ const TaskCard = memo(function TaskCard({
   const shortId = task.id.slice(-8);
   const shortSession = task.session_id.slice(-8);
 
+  // Cost-used is derived from task_events (kind=cost) rather than a
+  // dedicated column on the tasks table — events arrive lazily on
+  // expand so the collapsed row shows cap-only, and the pill/sparkline
+  // populate once the detail drawer opens.
+  const costSummary = useMemo(
+    () => summarizeTaskCost(events),
+    [events],
+  );
+  const cap = task.cost_cap_usd;
+  const used = costSummary.totalCostUsd;
+  const pillState = costState(used, cap);
+  const showHeartbeat = !terminal;
+  const duration = formatTaskDuration(
+    task.created_at,
+    task.last_heartbeat_at,
+  );
+
   return (
     <div className={`tasks-card tasks-card--${task.status}`}>
       {/* Summary row — clicking expands/collapses */}
@@ -209,12 +186,31 @@ const TaskCard = memo(function TaskCard({
           <span className="tasks-card-time">
             {formatFullDate(task.created_at)}
           </span>
+          {showHeartbeat && (
+            <span
+              className="tasks-card-heartbeat"
+              title="Last heartbeat from the runner — stale heartbeats trip the zombie reaper"
+            >
+              <Heart size={11} aria-hidden="true" />
+              {formatLastHeartbeat(task.last_heartbeat_at)}
+            </span>
+          )}
+          {terminal && (
+            <span className="tasks-card-duration" title="Total task duration">
+              {duration}
+            </span>
+          )}
         </div>
 
         <div className="tasks-card-meta">
-          {task.cost_cap_usd > 0 && (
-            <span className="tasks-tag">
-              cap ${task.cost_cap_usd.toFixed(2)}
+          {cap > 0 && (
+            <span className={`tasks-cost-pill tasks-cost-pill--${pillState}`}>
+              {formatCostLabel(used, cap)}
+            </span>
+          )}
+          {cap === 0 && used > 0 && (
+            <span className="tasks-cost-pill tasks-cost-pill--ok">
+              {formatCostLabel(used, 0)}
             </span>
           )}
           <span className="tasks-tag">step {task.next_plan_step_index}</span>
@@ -225,6 +221,24 @@ const TaskCard = memo(function TaskCard({
       {/* Expanded detail panel */}
       {expanded && (
         <div className="tasks-detail">
+          {/* Cost-over-time sparkline (Phase 13 WS#13.A polish) */}
+          {costSummary.sparkline.length > 0 && (
+            <div className="tasks-detail-cost">
+              <span className="tasks-detail-cost-label">Cost over time</span>
+              <span className="tasks-detail-cost-spark">
+                <CostSparkline
+                  points={costSummary.sparkline}
+                  width={140}
+                  height={26}
+                  ariaLabel={`Cost over time, total ${formatCostLabel(used, cap)}`}
+                />
+              </span>
+              <span className="tasks-detail-cost-total">
+                {formatCostLabel(used, cap)}
+              </span>
+            </div>
+          )}
+
           {/* Action buttons */}
           <div className="tasks-detail-actions">
             {task.status === "running" && (
@@ -277,6 +291,12 @@ function Tasks({ profile: _profile }: TasksProps): React.JSX.Element {
   const [eventsMap, setEventsMap] = useState<
     Record<string, { loading: boolean; events: TaskEvent[] }>
   >({});
+  // Pending cancel target — non-null while the CancelConfirmDialog is
+  // open. Cancelling now requires explicit confirmation rather than a
+  // single-click on the row card, mirroring the History undo flow.
+  const [pendingCancelTask, setPendingCancelTask] = useState<Task | null>(
+    null,
+  );
   const autoRefreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadTasks = useCallback(async (): Promise<void> => {
@@ -375,7 +395,7 @@ function Tasks({ profile: _profile }: TasksProps): React.JSX.Element {
     [loadTasks],
   );
 
-  const handleCancel = useCallback(
+  const performCancel = useCallback(
     async (taskId: string): Promise<void> => {
       try {
         await cancelTask(taskId);
@@ -385,6 +405,13 @@ function Tasks({ profile: _profile }: TasksProps): React.JSX.Element {
       }
     },
     [loadTasks],
+  );
+
+  const handleCancel = useCallback(
+    (task: Task): void => {
+      setPendingCancelTask(task);
+    },
+    [],
   );
 
   const grouped = groupTasks(tasks);
@@ -434,13 +461,24 @@ function Tasks({ profile: _profile }: TasksProps): React.JSX.Element {
                   onToggle={() => handleToggle(t.id)}
                   onPause={() => handlePause(t.id)}
                   onResume={() => handleResume(t.id)}
-                  onCancel={() => handleCancel(t.id)}
+                  onCancel={() => handleCancel(t)}
                 />
               ))}
             </div>
           ))}
         </div>
       )}
+
+      <CancelConfirmDialog
+        task={pendingCancelTask}
+        onConfirm={() => {
+          if (pendingCancelTask) {
+            void performCancel(pendingCancelTask.id);
+          }
+          setPendingCancelTask(null);
+        }}
+        onCancel={() => setPendingCancelTask(null)}
+      />
     </div>
   );
 }
