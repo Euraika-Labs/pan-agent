@@ -19,6 +19,7 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/paths"
+	"github.com/euraika-labs/pan-agent/internal/rag"
 	"github.com/euraika-labs/pan-agent/internal/recovery"
 	"github.com/euraika-labs/pan-agent/internal/storage"
 )
@@ -53,6 +54,12 @@ type Server struct {
 	// recoveryOnce lazily initialises recoveryH on first request.
 	recoveryOnce sync.Once
 	recoveryH    *recovery.Handler
+
+	// ragMu guards ragIndex. Phase 13 WS#13.B — the index is wired in
+	// after construction (so the desktop UI can hot-swap embedders);
+	// nil means "not configured" and handlers respond 503.
+	ragMu    sync.RWMutex
+	ragIndex *rag.Index
 }
 
 // getLLMClient returns the current LLM client under a read lock.

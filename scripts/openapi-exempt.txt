@@ -73,3 +73,11 @@
 # --- tools registry (list + per-tool toggle)
 /v1/tools
 /v1/tools/{key}
+
+# --- rag: Phase 13 WS#13.B substrate. Documenting the JSON shapes is
+# deferred until chat-loop integration ships; the request/response
+# types are still in flux while the embedder-config UX lands.
+/v1/rag/index
+/v1/rag/search
+/v1/rag/sessions/{id}/embeddings
+/v1/rag/health
