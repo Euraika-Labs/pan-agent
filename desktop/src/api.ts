@@ -373,6 +373,33 @@ export async function undoRecovery(receiptId: string): Promise<UndoResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+
+export interface Approval {
+  id: string;
+  session_id: string;
+  tool_name: string;
+  arguments: string;
+  status: ApprovalStatus;
+  created_at: number;
+  resolved_at?: number;
+}
+
+/**
+ * Read a single approval record. Used by the History undo flow to poll
+ * a 202-deferred reversal — once the human approves at /v1/approvals/{id},
+ * the backend triggers the actual reversal asynchronously, and the
+ * frontend pivots from "Pending Approval" to "Reverted at HH:MM"
+ * without waiting on the 5 s journal-list auto-refresh.
+ */
+export function getApproval(id: string): Promise<Approval> {
+  return fetchJSON<Approval>(`/v1/approvals/${id}`);
+}
+
+// ---------------------------------------------------------------------------
 // M4 W2: office engine + migration + bundle info + persistence alert bus
 // ---------------------------------------------------------------------------
 //
