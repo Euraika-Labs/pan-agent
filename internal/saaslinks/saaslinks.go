@@ -18,7 +18,10 @@
 // it (see SaaSAPIReverser in internal/recovery).
 package saaslinks
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // safeID accepts the alphanumeric / dash / underscore set every
 // SaaS in scope uses for its public IDs. Anything else is rejected so
@@ -130,6 +133,122 @@ func GCal(eventID, calendarID string) (string, bool) {
 // gcalCalendarRegex accepts the {primary | email-style ID | service-
 // account ID} surface Google uses for calendar identifiers.
 var gcalCalendarRegex = regexp.MustCompile(`^[A-Za-z0-9._@-]+$`)
+
+// ---------------------------------------------------------------------------
+// Phase 13 / WS#13.F — Slack / Notion / Jira deep-links
+//
+// Same regex-validated pattern as the v0.6.0 builders above. These three
+// providers don't yet have corresponding pan-agent tools; the builders
+// land first so the URL contract is settled before Phase 13 SaaS-tool
+// implementations need to consume it (mirrors the way Gmail / Stripe /
+// GCal landed in v0.6.0).
+// ---------------------------------------------------------------------------
+
+// slackWorkspaceRegex accepts Slack's subdomain shape — ASCII letters,
+// digits, and hyphens (no leading/trailing hyphen by Slack policy, but
+// we accept any position to keep this regex permissive; bad subdomains
+// produce 404s, not security incidents).
+var slackWorkspaceRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// slackThreadTSRegex accepts the Slack message timestamp format,
+// "<unix-seconds>.<microseconds>" (e.g. "1672531200.123456"). The URL
+// scheme strips the dot and prefixes "p", so we keep the raw form here
+// and reformat in the builder.
+var slackThreadTSRegex = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+
+// Slack returns a deep-link to a message thread inside a Slack channel:
+//
+//	channel only:  https://<workspace>.slack.com/archives/<channelID>
+//	with thread:   https://<workspace>.slack.com/archives/<channelID>/p<ts>
+//
+// where `<ts>` is the channel message's `thread_ts` with the dot stripped
+// (Slack's own URL scheme — "1672531200.123456" → "p1672531200123456").
+//
+// `threadTS` is optional; pass an empty string to link to the channel
+// itself rather than a specific thread. Returns ("", false) when any
+// field fails validation.
+func Slack(workspace, channelID, threadTS string) (string, bool) {
+	if !slackWorkspaceRegex.MatchString(workspace) {
+		return "", false
+	}
+	if !safeID.MatchString(channelID) {
+		return "", false
+	}
+	base := "https://" + workspace + ".slack.com/archives/" + channelID
+	if threadTS == "" {
+		return base, true
+	}
+	if !slackThreadTSRegex.MatchString(threadTS) {
+		return "", false
+	}
+	// Strip the dot — Slack's canonical message-link form drops the
+	// fractional separator and prefixes "p".
+	return base + "/p" + strings.ReplaceAll(threadTS, ".", ""), true
+}
+
+// notionIDRegex accepts the 32-character hex ID Notion uses internally.
+// Public Notion URLs typically interleave dashes (8-4-4-4-12 UUID
+// shape), but the canonical resolvable URL form drops the dashes and
+// just appends the bare hex run. We accept both shapes — strip dashes
+// before interpolating.
+var notionIDRegex = regexp.MustCompile(`^[A-Fa-f0-9]{32}$`)
+var notionDashedIDRegex = regexp.MustCompile(`^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$`)
+
+// Notion returns a deep-link to a Notion page or database:
+//
+//	https://www.notion.so/<32-hex-id>
+//
+// `id` may be supplied either as the bare 32-character hex form
+// (`abc123…`) or the dashed UUID form (`abc12345-6789-…`). Both
+// resolve to the same canonical URL on Notion's side.
+//
+// Returns ("", false) when `id` is not a recognised Notion ID shape.
+// Notion does not publish a stable "deep-link to comment" or
+// "deep-link to property" form, so this builder is page-granularity
+// only — sufficient for the audit-lane "Open in Notion" UX.
+func Notion(id string) (string, bool) {
+	switch {
+	case notionIDRegex.MatchString(id):
+		return "https://www.notion.so/" + id, true
+	case notionDashedIDRegex.MatchString(id):
+		// Strip dashes for the canonical URL form.
+		return "https://www.notion.so/" + strings.ReplaceAll(id, "-", ""), true
+	default:
+		return "", false
+	}
+}
+
+// jiraHostRegex accepts the Atlassian-cloud subdomain shape used in the
+// `<host>.atlassian.net` form, plus self-hosted hosts via dotted FQDN.
+// Reject anything that could smuggle a path or query separator.
+var jiraHostRegex = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$`)
+
+// jiraIssueKeyRegex accepts the canonical Jira issue-key shape:
+// project key (uppercase letters, optionally containing digits after
+// the first letter) + dash + issue number. Examples: PROJ-123,
+// PAN-1, ABC123-456.
+var jiraIssueKeyRegex = regexp.MustCompile(`^[A-Z][A-Z0-9]+-[0-9]+$`)
+
+// Jira returns a deep-link to a single Jira issue:
+//
+//	https://<host>/browse/<issueKey>
+//
+// `host` is the full hostname. For Atlassian Cloud users this looks
+// like `acme.atlassian.net`; self-hosted Jira users pass their own
+// FQDN (e.g. `jira.internal.example.com`). For Atlassian Cloud, do
+// NOT pass the bare workspace name — pass the full `*.atlassian.net`
+// host.
+//
+// Returns ("", false) when `host` or `issueKey` fails validation.
+func Jira(host, issueKey string) (string, bool) {
+	if !jiraHostRegex.MatchString(host) {
+		return "", false
+	}
+	if !jiraIssueKeyRegex.MatchString(issueKey) {
+		return "", false
+	}
+	return "https://" + host + "/browse/" + issueKey, true
+}
 
 // encodeGCalEID produces the base64url-no-padding encoding of
 // "<eventID> <calendarID>" that Google Calendar's URL scheme expects.

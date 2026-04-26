@@ -148,6 +148,159 @@ func TestGCal_RejectsBadEventOrCalendar(t *testing.T) {
 	}
 }
 
+// Slack — Phase 13 WS#13.F
+// ---------------------------------------------------------------------------
+
+func TestSlack_ChannelOnly(t *testing.T) {
+	url, ok := Slack("euraika", "C01ABC23DEF", "")
+	if !ok {
+		t.Fatal("Slack returned ok=false on a valid channel")
+	}
+	want := "https://euraika.slack.com/archives/C01ABC23DEF"
+	if url != want {
+		t.Errorf("url = %q, want %q", url, want)
+	}
+}
+
+func TestSlack_WithThread(t *testing.T) {
+	url, ok := Slack("euraika", "C01ABC23DEF", "1672531200.123456")
+	if !ok {
+		t.Fatal("Slack returned ok=false on a valid thread ts")
+	}
+	// Slack's canonical form: dot stripped, "p" prefix.
+	want := "https://euraika.slack.com/archives/C01ABC23DEF/p1672531200123456"
+	if url != want {
+		t.Errorf("url = %q, want %q", url, want)
+	}
+}
+
+func TestSlack_RejectsHostileWorkspace(t *testing.T) {
+	for _, w := range []string{
+		"euraika.evil", // dot smuggles a subdomain
+		"euraika/evil", // path smuggle
+		"EURAIKA",      // uppercase not allowed
+		"",             // empty
+		"euraika evil", // whitespace
+	} {
+		if _, ok := Slack(w, "C123", ""); ok {
+			t.Errorf("Slack accepted hostile workspace %q", w)
+		}
+	}
+}
+
+func TestSlack_RejectsHostileChannelOrThread(t *testing.T) {
+	if _, ok := Slack("euraika", "C123/evil", ""); ok {
+		t.Error("Slack accepted hostile channelID")
+	}
+	if _, ok := Slack("euraika", "C123", "1672531200"); ok {
+		t.Error("Slack accepted thread ts without microseconds (no dot)")
+	}
+	if _, ok := Slack("euraika", "C123", "1672531200.abcdef"); ok {
+		t.Error("Slack accepted non-numeric thread ts")
+	}
+	if _, ok := Slack("euraika", "C123", "1672531200.123.456"); ok {
+		t.Error("Slack accepted multi-dot thread ts")
+	}
+}
+
+// Notion — Phase 13 WS#13.F
+// ---------------------------------------------------------------------------
+
+func TestNotion_BareHexID(t *testing.T) {
+	url, ok := Notion("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+	if !ok {
+		t.Fatal("Notion returned ok=false on a valid 32-hex ID")
+	}
+	want := "https://www.notion.so/a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	if url != want {
+		t.Errorf("url = %q, want %q", url, want)
+	}
+}
+
+func TestNotion_DashedUUID(t *testing.T) {
+	url, ok := Notion("a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90")
+	if !ok {
+		t.Fatal("Notion returned ok=false on a valid dashed UUID")
+	}
+	// Dashed and bare forms must map to the same canonical URL.
+	want := "https://www.notion.so/a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	if url != want {
+		t.Errorf("url = %q, want %q", url, want)
+	}
+}
+
+func TestNotion_RejectsBadID(t *testing.T) {
+	for _, id := range []string{
+		"abc123",                               // too short
+		"a1b2c3d4e5f60718293a4b5c6d7e8f9z",     // non-hex
+		"a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f9",  // wrong dashed length
+		"a1b2c3d4_e5f6_0718_293a_4b5c6d7e8f90", // underscores not dashes
+		"",                                     // empty
+		"a1b2c3d4-e5f6/evil",                   // path smuggle
+	} {
+		if url, ok := Notion(id); ok {
+			t.Errorf("Notion accepted bad id %q → %q", id, url)
+		}
+	}
+}
+
+// Jira — Phase 13 WS#13.F
+// ---------------------------------------------------------------------------
+
+func TestJira_AtlassianCloud(t *testing.T) {
+	url, ok := Jira("acme.atlassian.net", "PAN-123")
+	if !ok {
+		t.Fatal("Jira returned ok=false on cloud host + valid issue")
+	}
+	want := "https://acme.atlassian.net/browse/PAN-123"
+	if url != want {
+		t.Errorf("url = %q, want %q", url, want)
+	}
+}
+
+func TestJira_SelfHosted(t *testing.T) {
+	url, ok := Jira("jira.internal.example.com", "ABC123-456")
+	if !ok {
+		t.Fatal("Jira returned ok=false on self-hosted FQDN")
+	}
+	want := "https://jira.internal.example.com/browse/ABC123-456"
+	if url != want {
+		t.Errorf("url = %q, want %q", url, want)
+	}
+}
+
+func TestJira_RejectsHostileHost(t *testing.T) {
+	for _, h := range []string{
+		"acme.atlassian.net/evil", // path smuggle
+		"acme.atlassian.net?x=1",  // query smuggle
+		"-acme.atlassian.net",     // leading dash invalid by jiraHostRegex
+		"acme.atlassian.net-",     // trailing dash invalid
+		"",                        // empty
+		"acme atlassian net",      // whitespace
+	} {
+		if _, ok := Jira(h, "PAN-1"); ok {
+			t.Errorf("Jira accepted hostile host %q", h)
+		}
+	}
+}
+
+func TestJira_RejectsHostileIssueKey(t *testing.T) {
+	for _, k := range []string{
+		"pan-123",      // lowercase project key
+		"PAN_123",      // underscore not dash
+		"PAN-",         // missing number
+		"-123",         // missing project
+		"PAN-12.3",     // dot in number
+		"PAN-123/evil", // path smuggle
+		"123-456",      // numeric project (regex requires letter prefix)
+		"",             // empty
+	} {
+		if _, ok := Jira("acme.atlassian.net", k); ok {
+			t.Errorf("Jira accepted hostile issue key %q", k)
+		}
+	}
+}
+
 // base64URLNoPad — the tiny inline encoder backing GCal eids.
 // ---------------------------------------------------------------------------
 
