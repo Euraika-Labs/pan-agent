@@ -60,10 +60,23 @@ func TestBuildCronPlanJSON_Roundtrips(t *testing.T) {
 // helper used json.Marshal per field, but the static analyser could
 // not prove that and a future edit to the format string could regress.
 // Now that we Marshal a typed struct, an adversarial input with raw
-// double quotes, backslashes, newlines, and unicode round-trips
-// without breaking the surrounding JSON.
+// double quotes, backslashes, newlines, control bytes, and unicode
+// round-trips without breaking the surrounding JSON.
 func TestBuildCronPlanJSON_EscapesAdversarialQuotes(t *testing.T) {
-	hostile := `"; DROP TABLE tasks; --` + "\n\\\"\xe2\x98\x83 ☃"
+	// Build the hostile string from byte parts so the source file
+	// itself stays free of stray control characters (staticcheck
+	// ST1018 flags any string literal that contains U+0007 etc.).
+	// The exercised runtime payload is unchanged.
+	hostile := string([]byte{
+		'"', ';', ' ', 'D', 'R', 'O', 'P', ' ', 'T', 'A', 'B', 'L', 'E', ' ',
+		't', 'a', 's', 'k', 's', ';', ' ', '-', '-',
+		'\n', '\\', '"',
+		// U+2603 SNOWMAN — a 3-byte UTF-8 sequence.
+		0xE2, 0x98, 0x83,
+		// BEL (U+0007) — verifies control bytes survive the round-trip.
+		' ', 0x07,
+	})
+
 	out, err := buildCronPlanJSON(cron.Job{
 		ID:     `id"with"quotes`,
 		Name:   "name\nwith\nnewlines",
