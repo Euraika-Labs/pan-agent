@@ -165,6 +165,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/recovery/undo/{receiptID}", s.handleRecoveryUndo)
 	mux.HandleFunc("GET /v1/recovery/diff/{receiptID}", s.handleRecoveryDiff)
 
+	// ------------------------------------------------------------ marketplace
+	// Phase 13 WS#13.C — signed-bundle skill install pipeline.
+	// Install reads a local bundle path; the desktop downloads to a
+	// temp dir before posting. Trust endpoints manage the pinned-
+	// publisher list under MarketplaceTrustFile(profile).
+	mux.HandleFunc("POST /v1/marketplace/install", s.handleMarketplaceInstall)
+	mux.HandleFunc("GET /v1/marketplace/trusted", s.handleMarketplaceTrustList)
+	mux.HandleFunc("POST /v1/marketplace/trusted", s.handleMarketplacePin)
+	mux.HandleFunc("DELETE /v1/marketplace/trusted/{fingerprint}", s.handleMarketplaceUnpin)
+
 	// -------------------------------------------------------------------- rag
 	// Phase 13 WS#13.B — semantic-search index over chat history.
 	// Endpoints 503 when no embedder has been attached via

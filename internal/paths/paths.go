@@ -200,6 +200,15 @@ func CSPViolationsLog() string {
 	return filepath.Join(dataDir(), "csp-violations.log")
 }
 
+// MarketplaceTrustFile returns the path to the trust-set file that
+// stores pinned publisher public keys for WS#13.C bundle installs.
+// Profile-scoped because trust is a per-user concern: a shared host
+// running multiple profiles should let each user pin their own
+// publishers without leaking trust across profiles.
+func MarketplaceTrustFile(profile string) string {
+	return filepath.Join(ProfileHome(profile), "marketplace-trust.json")
+}
+
 // SkillsDir returns the path to the installed skills directory.
 // Structure: <AgentHome>/skills/<category>/<skill-name>/SKILL.md
 func SkillsDir() string {
