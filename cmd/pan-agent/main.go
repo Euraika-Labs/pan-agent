@@ -154,8 +154,10 @@ func cmdServe(args []string) error {
 		if err != nil {
 			return fmt.Errorf("cron session: %w", err)
 		}
-		planJSON := fmt.Sprintf(`{"steps":[{"id":%s,"tool":"chat","params":{"prompt":%s},"description":%s}]}`,
-			mustMarshalString("cron-"+j.ID), mustMarshalString(j.Prompt), mustMarshalString("Cron: "+j.Name))
+		planJSON, err := buildCronPlanJSON(j)
+		if err != nil {
+			return fmt.Errorf("cron plan marshal: %w", err)
+		}
 		_, err = taskStore.CreateTask(sess.ID, planJSON, j.CostCapUSD)
 		return err
 	})
@@ -576,14 +578,39 @@ func doctorSwitchEngine(target string) error {
 	return nil
 }
 
-// mustMarshalString JSON-encodes a string safely. Panics on marshal failure
-// (which cannot happen for a valid Go string).
-func mustMarshalString(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		panic(fmt.Sprintf("mustMarshalString: %v", err))
+// buildCronPlanJSON serialises a cron-fired task plan via json.Marshal on a
+// typed struct, rather than fmt.Sprintf with hand-rolled JSON quoting.
+//
+// The previous implementation used Sprintf-into-a-template with a
+// json.Marshal-per-field helper for escaping; semantically that produced
+// well-formed JSON, but CodeQL's go/unsafe-quoting rule flags any pattern
+// where a substituted value lands inside a JSON literal — the static
+// analyser can't prove the helper escapes correctly, and a future edit
+// to the format string could trivially regress to an unsafe path. Using
+// json.Marshal on a typed struct removes the warning at the root.
+func buildCronPlanJSON(j cron.Job) (string, error) {
+	type planStep struct {
+		ID          string                 `json:"id"`
+		Tool        string                 `json:"tool"`
+		Params      map[string]interface{} `json:"params"`
+		Description string                 `json:"description"`
 	}
-	return string(b)
+	type plan struct {
+		Steps []planStep `json:"steps"`
+	}
+	p := plan{
+		Steps: []planStep{{
+			ID:          "cron-" + j.ID,
+			Tool:        "chat",
+			Params:      map[string]interface{}{"prompt": j.Prompt},
+			Description: "Cron: " + j.Name,
+		}},
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // doctorDeprecatedUsage reports whether any legacy /v1/office/* hits
