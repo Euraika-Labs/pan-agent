@@ -188,6 +188,43 @@ func (d *DB) GetRAGState(key string) (string, bool, error) {
 	return v, true, nil
 }
 
+// ListMessagesSince returns messages with id > afterID, ordered ASC,
+// capped at limit rows. Used by the rag watcher to drain new messages
+// in id order so the cursor advances monotonically. Pass afterID=0 to
+// start from the beginning.
+//
+// limit must be positive; <= 0 returns an error so we don't accidentally
+// stream the whole table on a misuse.
+func (d *DB) ListMessagesSince(afterID int64, limit int) ([]Message, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("storage: ListMessagesSince: limit must be > 0, got %d", limit)
+	}
+	const q = `
+SELECT id, session_id, role, content, timestamp
+FROM   messages
+WHERE  id > ?
+ORDER  BY id ASC
+LIMIT  ?`
+	rows, err := d.db.Query(q, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("storage: ListMessagesSince: %w", err)
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		var m Message
+		var content sql.NullString
+		if err := rows.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.Timestamp); err != nil {
+			return nil, fmt.Errorf("storage: ListMessagesSince scan: %w", err)
+		}
+		if content.Valid {
+			m.Content = content.String
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // SetRAGState upserts a single key/value into rag_state. Used by the
 // embedder watcher to record its progress (last_indexed_event_id,
 // last_indexed_message_id, etc.) so a crash-resume picks up cleanly.
