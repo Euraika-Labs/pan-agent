@@ -98,6 +98,105 @@ func RedactBytes(b []byte) []byte {
 	return []byte(Redact(string(b)))
 }
 
+// applyClassifier rewrites text by running classifier c's regex over it
+// and invoking emit() for each match that passes the length-bound +
+// negative-regex predicates. emit() returns the replacement string for
+// the matched span; for classifiers with a capture group the returned
+// token replaces only the captured group, leaving the surrounding
+// context (e.g. the "Bearer " prefix) intact.
+//
+// Extracted from redactInternal in Phase 13 WS#13.G prep so the future
+// LLM-redaction pipeline can reuse the exact same match-finding +
+// replacement contract while plugging in a different emit (per-
+// conversation reversible counter tokens instead of HMAC tokens).
+//
+// Sequential-classifier-wins semantics are preserved by callers running
+// applyClassifier per classifier in declaration order — output of
+// classifier N feeds classifier N+1, so an earlier classifier's
+// tokenisation shields its region from later classifier regexes (most
+// of which don't match the literal "<REDACTED:…>" character set).
+//
+// Three predicates gate emit() in the same order as the original:
+//  1. extract span (capture group 1 if present, else whole match)
+//  2. minLen <= len(span) <= maxLen (maxLen=0 ⇒ no upper bound)
+//  3. negative regex must NOT match span (defensive — protectNegatives
+//     normally substitutes such spans with NUL placeholders before this
+//     runs, but the check is repeated here so callers that skip
+//     protection still get correct semantics).
+func applyClassifier(text string, c classifier, emit func(span string) string) string {
+	return c.re.ReplaceAllStringFunc(text, func(matched string) string {
+		span := matched
+		subs := c.re.FindStringSubmatch(matched)
+		if len(subs) > 1 {
+			span = subs[1]
+		}
+		l := len(span)
+		if l < c.minLen || (c.maxLen > 0 && l > c.maxLen) {
+			return matched
+		}
+		if c.negative != nil && c.negative.MatchString(span) {
+			return matched
+		}
+		token := emit(span)
+		if len(subs) > 1 {
+			subIdx := c.re.FindStringSubmatchIndex(matched)
+			if len(subIdx) >= 4 {
+				prefix := matched[:subIdx[2]]
+				suffix := matched[subIdx[3]:]
+				return prefix + token + suffix
+			}
+		}
+		return token
+	})
+}
+
+// protectedGuard is one (placeholder, original) pair produced by
+// protectNegatives and consumed by restoreProtected.
+type protectedGuard struct {
+	placeholder string
+	original    string
+}
+
+// protectNegatives implements pass 1 of the redaction pipeline:
+// substitute every span that matches a classifier's negative regex
+// with a NUL-delimited placeholder so subsequent classification runs
+// can't redact it. Returns the placeholdered text plus the guard
+// table that pass 3 (restoreProtected) uses to put the originals back.
+//
+// Extracted alongside applyClassifier so the future LLM pipeline
+// reuses the protect/restore envelope without duplicating the shape.
+func protectNegatives(text string, patterns []classifier) (string, []protectedGuard) {
+	var guards []protectedGuard
+	working := text
+	for _, c := range patterns {
+		if c.negative == nil {
+			continue
+		}
+		working = c.re.ReplaceAllStringFunc(working, func(matched string) string {
+			span := matched
+			if subs := c.re.FindStringSubmatch(matched); len(subs) > 1 {
+				span = subs[1]
+			}
+			if !c.negative.MatchString(span) {
+				return matched
+			}
+			ph := fmt.Sprintf("\x00PROT%d\x00", len(guards))
+			guards = append(guards, protectedGuard{placeholder: ph, original: matched})
+			return ph
+		})
+	}
+	return working, guards
+}
+
+// restoreProtected reverses protectNegatives — substituting each
+// guard's placeholder back to its original string.
+func restoreProtected(text string, guards []protectedGuard) string {
+	for _, g := range guards {
+		text = strings.Replace(text, g.placeholder, g.original, 1)
+	}
+	return text
+}
+
 // redactInternal implements both Redact and RedactWithMap.
 //
 // A span that matches a classifier's negative regex is globally protected
@@ -105,11 +204,18 @@ func RedactBytes(b []byte) []byte {
 // restored after all have run. This prevents a broader classifier (e.g. Phone
 // matching a 10-digit subsequence of a 16-digit CC) from redacting a span
 // that a more specific classifier has already flagged as known-safe.
+//
+// Refactored in Phase 13 WS#13.G prep: the per-classifier match+replace
+// closure is now applyClassifier; the negative-protection envelope is
+// protectNegatives + restoreProtected. Output is byte-for-byte identical
+// to the previous implementation — TestRedactGoldenFile is the
+// load-bearing invariant guarding that.
 func redactInternal(text string, buildMap bool) (string, map[string]string) {
 	global.initKey()
 	global.mu.RLock()
 	key := global.key
 	initErr := global.keyInitErr
+	patterns := global.patterns
 	global.mu.RUnlock()
 
 	if initErr != nil {
@@ -121,72 +227,26 @@ func redactInternal(text string, buildMap bool) (string, map[string]string) {
 		revealMap = make(map[string]string)
 	}
 
-	// Pass 1: protect spans that hit a negative regex. Placeholders use
-	// NUL bytes which no classifier regex can match, so they pass through
-	// classification untouched.
-	type protected struct{ placeholder, original string }
-	var guards []protected
-	working := text
-	for _, c := range global.patterns {
-		if c.negative == nil {
-			continue
-		}
-		working = c.re.ReplaceAllStringFunc(working, func(match string) string {
-			span := match
-			if subs := c.re.FindStringSubmatch(match); len(subs) > 1 {
-				span = subs[1]
-			}
-			if !c.negative.MatchString(span) {
-				return match
-			}
-			ph := fmt.Sprintf("\x00PROT%d\x00", len(guards))
-			guards = append(guards, protected{placeholder: ph, original: match})
-			return ph
-		})
-	}
+	// Pass 1: protect negative-regex matches with NUL placeholders.
+	working, guards := protectNegatives(text, patterns)
 
-	// Pass 2: run classifier loop on the placeholdered text. The negative
-	// check remains as a defensive no-op — spans that would have matched
-	// are already placeholder-substituted and no longer look like anything.
-	result := working
-	for _, c := range global.patterns {
-		result = c.re.ReplaceAllStringFunc(result, func(match string) string {
-			span := match
-			subs := c.re.FindStringSubmatch(match)
-			if len(subs) > 1 {
-				span = subs[1]
-			}
-
-			l := len(span)
-			if l < c.minLen || (c.maxLen > 0 && l > c.maxLen) {
-				return match
-			}
-			if c.negative != nil && c.negative.MatchString(span) {
-				return match
-			}
-
+	// Pass 2: run each classifier in declaration order. Output of the
+	// previous classifier feeds the next so an earlier classifier's
+	// tokens shield their regions from a later classifier's regex —
+	// this is the load-bearing invariant TestRedactGoldenFile guards.
+	for _, c := range patterns {
+		c := c // capture for closure
+		working = applyClassifier(working, c, func(span string) string {
 			token := makeToken(key, c.category, span)
 			if buildMap {
 				revealMap[token] = span
-			}
-
-			if len(subs) > 1 {
-				subIdx := c.re.FindStringSubmatchIndex(match)
-				if len(subIdx) >= 4 {
-					prefix := match[:subIdx[2]]
-					suffix := match[subIdx[3]:]
-					return prefix + token + suffix
-				}
 			}
 			return token
 		})
 	}
 
 	// Pass 3: restore protected spans in their original form.
-	for _, g := range guards {
-		result = strings.Replace(result, g.placeholder, g.original, 1)
-	}
-	return result, revealMap
+	return restoreProtected(working, guards), revealMap
 }
 
 // makeToken returns "<REDACTED:CATEGORY:xxxxxx>" where xxxxxx is the first 6
