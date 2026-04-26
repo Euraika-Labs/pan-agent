@@ -139,12 +139,10 @@ func TestMarketplaceInstall_UntrustedPublisher(t *testing.T) {
 
 func TestMarketplaceInstall_BundleNotFound(t *testing.T) {
 	_, mux := setupMarketplaceServer(t)
-	// Use a path that's well-formed (absolute, under temp) but
-	// doesn't actually exist — sanitiseBundlePath rejects with
-	// "invalid_request" before LoadBundle would have returned
-	// "bundle_invalid". Either is a valid 400 from the caller's
-	// POV; the test just pins the exact code so a future change
-	// is detected.
+	// Path is well-formed (absolute, under temp) and passes the
+	// sanitiser's structural validation, but the directory doesn't
+	// exist on disk — LoadBundle returns ErrBundleInvalid which
+	// surfaces as the bundle_invalid code.
 	body, _ := json.Marshal(marketplaceInstallRequest{
 		BundlePath: filepath.Join(t.TempDir(), "does-not-exist"),
 	})
@@ -157,8 +155,8 @@ func TestMarketplaceInstall_BundleNotFound(t *testing.T) {
 	}
 	var apiErr APIError
 	_ = json.Unmarshal(w.Body.Bytes(), &apiErr)
-	if apiErr.Code != "invalid_request" {
-		t.Errorf("code = %q, want invalid_request", apiErr.Code)
+	if apiErr.Code != "bundle_invalid" {
+		t.Errorf("code = %q, want bundle_invalid", apiErr.Code)
 	}
 }
 
