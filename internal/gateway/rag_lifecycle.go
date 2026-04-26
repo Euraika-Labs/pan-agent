@@ -30,11 +30,13 @@ import (
 // continues to work without semantic-recall context.
 
 // Env var names — declared as constants so tests can reference the
-// same symbols + a future config-file backend can substitute.
+// same symbols + a future config-file backend can substitute. The
+// nosec annotations cover gosec G101 (hardcoded credentials): these
+// are the NAMES of env vars users set, not the values.
 const (
 	envRAGEmbedderURL     = "PAN_AGENT_RAG_EMBEDDER_URL"
 	envRAGEmbedderModel   = "PAN_AGENT_RAG_EMBEDDER_MODEL"
-	envRAGEmbedderAPIKey  = "PAN_AGENT_RAG_EMBEDDER_API_KEY"
+	envRAGEmbedderAPIKey  = "PAN_AGENT_RAG_EMBEDDER_API_KEY" // #nosec G101 -- env var name, not a credential value
 	envRAGEmbedderDim     = "PAN_AGENT_RAG_EMBEDDER_DIM"
 	envRAGWatcherInterval = "PAN_AGENT_RAG_WATCHER_INTERVAL"
 )
