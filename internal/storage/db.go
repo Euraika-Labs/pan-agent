@@ -65,6 +65,10 @@ func Open(dbPath string) (*DB, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("storage.Open migrateActionReceiptsSaasSplit: %w", err)
 	}
+	if err := d.migrateRAGEmbeddings(); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("storage.Open migrateRAGEmbeddings: %w", err)
+	}
 	return d, nil
 }
 
@@ -324,6 +328,47 @@ func (d *DB) migrateActionReceiptsSaasSplit() error {
 	return nil
 }
 
+// migrateRAGEmbeddings is the Phase 13 WS#13.B schema migration that
+// creates the durable side-table for semantic-search embeddings plus
+// the rag_state cursor table. Both are CREATE TABLE IF NOT EXISTS so
+// the base migrate() statement above ALSO creates them on a fresh DB
+// — this function exists so an existing v0.6.0 DB upgrades cleanly
+// without dropping data.
+//
+// Idempotency: every statement is IF NOT EXISTS. Re-running on an
+// already-migrated DB is a no-op. The function is safe to call from
+// any number of concurrent storage.Open instances thanks to SQLite's
+// single-writer pool, but in practice Open is serialized.
+func (d *DB) migrateRAGEmbeddings() error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS rag_embeddings (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			source       TEXT    NOT NULL,
+			source_id    TEXT    NOT NULL,
+			session_id   TEXT,
+			content_hash TEXT    NOT NULL,
+			text         TEXT    NOT NULL,
+			model        TEXT    NOT NULL,
+			dim          INTEGER NOT NULL,
+			vector       BLOB    NOT NULL,
+			created_at   INTEGER NOT NULL,
+			UNIQUE(source, source_id, model)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_rag_session ON rag_embeddings(session_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_rag_hash    ON rag_embeddings(content_hash)`,
+		`CREATE TABLE IF NOT EXISTS rag_state (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
+	}
+	for _, s := range stmts {
+		if _, err := d.db.Exec(s); err != nil {
+			return fmt.Errorf("migrateRAGEmbeddings: %w", err)
+		}
+	}
+	return nil
+}
+
 // Close releases the underlying database connection.
 func (d *DB) Close() error {
 	return d.db.Close()
@@ -501,6 +546,48 @@ CREATE TABLE IF NOT EXISTS action_receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_action_receipts_task_created
     ON action_receipts(task_id, created_at);
+
+-- ---------------------------------------------------------------------------
+-- Phase 13 WS#13.B — RAG embeddings (durable side-table for semantic search)
+-- source:        'message' | 'step' | 'receipt' — what produced the entry
+-- source_id:     foreign-ish id into the source table (free-form, not enforced
+--                via FK because deletes propagate via tombstones, not cascades)
+-- session_id:    optional scoping for the search ACL filter
+-- content_hash:  SHA-256 hex of the text column; lets re-indexing be idempotent
+-- text:          the indexed string (already HMAC-redacted before write so a
+--                vector-similarity attack cannot reconstruct secrets — see
+--                Phase 13 WS#13.G threat note I5)
+-- model:         embedding model id (e.g. regolo:bge-small-en-v1.5); a model
+--                swap re-indexes lazily because UNIQUE(source,source_id,model)
+--                rejects collisions per-model
+-- dim:           embedding dimensionality (sanity check on writes)
+-- vector:        float32 little-endian packed BLOB (4*dim bytes)
+-- created_at:    unix seconds, indexed implicitly via PK insertion order
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rag_embeddings (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    source       TEXT    NOT NULL,
+    source_id    TEXT    NOT NULL,
+    session_id   TEXT,
+    content_hash TEXT    NOT NULL,
+    text         TEXT    NOT NULL,
+    model        TEXT    NOT NULL,
+    dim          INTEGER NOT NULL,
+    vector       BLOB    NOT NULL,
+    created_at   INTEGER NOT NULL,
+    UNIQUE(source, source_id, model)
+);
+CREATE INDEX IF NOT EXISTS idx_rag_session ON rag_embeddings(session_id);
+CREATE INDEX IF NOT EXISTS idx_rag_hash    ON rag_embeddings(content_hash);
+
+-- rag_state holds a single-row cursor that the embedder watcher uses to
+-- replay missed events after a crash. Schema is "key/value" so we can
+-- accrete future fields (last_indexed_event_id, last_indexed_message_id,
+-- last_purged_at) without bumping a migration each time.
+CREATE TABLE IF NOT EXISTS rag_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 `
 	_, err := d.db.Exec(schema)
 	if err != nil {
