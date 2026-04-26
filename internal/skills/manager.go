@@ -195,6 +195,49 @@ func (m *Manager) WriteSupportingFile(category, name, relPath string, content []
 	return atomicWrite(target, content, 0o600)
 }
 
+// WriteProposalFile writes a supporting file directly into a queued
+// proposal directory. Mirrors WriteSupportingFile (which targets the
+// active skill tree) — the marketplace install pipeline uses this
+// to stage every non-SKILL.md file from a verified bundle alongside
+// the SKILL.md that CreateProposal already wrote.
+//
+// proposalID must reference an existing proposal (the install
+// pipeline calls CreateProposal first to create the dir + SKILL.md).
+// relPath is the bundle-relative file path; same containment +
+// guard-scan + size-cap rules as WriteSupportingFile so a malicious
+// supporting file can't escape via path tricks or sneak unsigned
+// content past the reviewer guard.
+func (m *Manager) WriteProposalFile(proposalID, relPath string, content []byte) error {
+	if len(content) > MaxSupportingBytes {
+		return fmt.Errorf("file exceeds %d bytes", MaxSupportingBytes)
+	}
+	if err := validateRelativePath(relPath); err != nil {
+		return err
+	}
+	proposalDir, err := resolveProposalDir(m.Profile, proposalID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(proposalDir); err != nil {
+		return fmt.Errorf("proposal %s not found", proposalID)
+	}
+	target := filepath.Join(proposalDir, relPath)
+	// Defence-in-depth: confirm the resolved target stays inside the
+	// proposal dir even after path-segment normalisation.
+	rel, err := filepath.Rel(proposalDir, target)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") ||
+		strings.HasPrefix(rel, string(filepath.Separator)) {
+		return fmt.Errorf("path escapes proposal directory")
+	}
+	if m.Guard != nil {
+		if scan := m.Guard.Scan(string(content)); scan.Blocked {
+			return fmt.Errorf("guard blocked supporting file %s: %d finding(s)",
+				relPath, len(scan.Findings))
+		}
+	}
+	return atomicWrite(target, content, 0o600)
+}
+
 // RemoveSupportingFile removes a supporting file from an active skill.
 func (m *Manager) RemoveSupportingFile(category, name, relPath string) error {
 	if err := validateRelativePath(relPath); err != nil {
