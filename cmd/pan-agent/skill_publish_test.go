@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -21,13 +22,15 @@ func TestSkillKeygen_HappyPath(t *testing.T) {
 	if err := cmdSkillKeygen(nil); err != nil {
 		t.Fatalf("keygen: %v", err)
 	}
-	// Seed file should exist with mode 0o600.
+	// Seed file should exist; on POSIX systems it must be mode 0o600.
+	// Windows doesn't honour Unix file permissions (NTFS ACLs map back
+	// through Stat as -rw-rw-rw-), so the perm assertion is POSIX-only.
 	path := paths.MarketplacePublisherSeedFile("")
 	st, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat seed: %v", err)
 	}
-	if st.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("seed perm = %v, want 0600", st.Mode().Perm())
 	}
 	body, err := os.ReadFile(path)
