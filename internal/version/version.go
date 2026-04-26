@@ -9,7 +9,7 @@ package version
 
 // Version is the semantic version string (e.g. "0.4.0").
 // Overridden via -ldflags at build time.
-var Version = "0.5.0"
+var Version = "0.6.0"
 
 // Commit is the short Git commit hash at build time.
 // Overridden via -ldflags at build time.
