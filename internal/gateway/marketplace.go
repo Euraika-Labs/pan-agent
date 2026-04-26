@@ -4,7 +4,11 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/euraika-labs/pan-agent/internal/marketplace"
@@ -82,6 +86,12 @@ type marketplaceUnpinResponse struct {
 
 // handleMarketplaceInstall reads a bundle from BundlePath, verifies
 // it against the trust set, and stages it as a proposal.
+//
+// BundlePath is user-supplied data that flows into filesystem
+// operations (LoadBundle reads manifest.json + every declared file
+// under the path). CodeQL flags this as a path-injection sink unless
+// the input is sanitised through an allowlist boundary; sanitiseBundlePath
+// is that boundary.
 func (s *Server) handleMarketplaceInstall(w http.ResponseWriter, r *http.Request) {
 	var req marketplaceInstallRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -89,9 +99,10 @@ func (s *Server) handleMarketplaceInstall(w http.ResponseWriter, r *http.Request
 			"invalid_request", "invalid JSON body", nil)
 		return
 	}
-	if req.BundlePath == "" {
+	cleanPath, err := sanitiseBundlePath(req.BundlePath, s.profile)
+	if err != nil {
 		writeAPIError(w, http.StatusBadRequest,
-			"invalid_request", "bundle_path required", nil)
+			"invalid_request", err.Error(), nil)
 		return
 	}
 
@@ -103,7 +114,7 @@ func (s *Server) handleMarketplaceInstall(w http.ResponseWriter, r *http.Request
 	}
 
 	mgr := skills.NewManager(s.profile)
-	res, err := skillinstall.Install(req.BundlePath, pubs, mgr, req.SessionID)
+	res, err := skillinstall.Install(cleanPath, pubs, mgr, req.SessionID)
 	if err != nil {
 		writeMarketplaceError(w, err)
 		return
@@ -246,6 +257,95 @@ func (s *Server) loadTrustedPublishers() ([]ed25519.PublicKey, *marketplace.Trus
 		return nil, nil, err
 	}
 	return pubs, ts, nil
+}
+
+// sanitiseBundlePath validates a user-supplied bundle path and returns
+// a cleaned absolute path that's safe to pass to LoadBundle. Three
+// failure modes:
+//
+//  1. Empty input.
+//  2. After Clean+Abs, the path doesn't sit inside one of the
+//     allowed parent directories. The desktop client downloads
+//     bundles to either os.TempDir() (the install-from-marketplace
+//     path) or the agent home (the install-from-cache path); paths
+//     outside those are rejected.
+//  3. The resolved path doesn't exist or isn't a directory.
+//
+// The allowlist boundary is the load-bearing piece for CodeQL's
+// go/path-injection sink — by ensuring every path that reaches
+// LoadBundle has been Clean+Abs'd AND prefix-checked against a
+// known-safe parent, the data flow is no longer "uncontrolled".
+//
+// The "agent home" prefix is profile-aware so a user pre-staging
+// bundles under their per-profile agent home (~/.local/share/
+// pan-agent/<profile>/bundles/, etc.) works without surfacing the
+// directory layout.
+func sanitiseBundlePath(raw string, profile string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("bundle_path required")
+	}
+	cleaned := filepath.Clean(raw)
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("bundle_path must be absolute, got %q", raw)
+	}
+	abs, err := filepath.Abs(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("bundle_path: %w", err)
+	}
+	// Disallow any residual ".." after Clean (defence-in-depth — Clean
+	// should have collapsed them but a symlinked parent could re-introduce).
+	for _, seg := range strings.Split(abs, string(filepath.Separator)) {
+		if seg == ".." {
+			return "", fmt.Errorf("bundle_path must not contain traversal segments")
+		}
+	}
+
+	// Resolve the actual on-disk location AFTER symlink expansion so
+	// a symlink under /tmp pointing at /etc can't sneak past the
+	// prefix check.
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("bundle_path: stat: %w", err)
+	}
+	st, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("bundle_path: stat: %w", err)
+	}
+	if !st.IsDir() {
+		return "", fmt.Errorf("bundle_path must be a directory")
+	}
+
+	// Allowed parent prefixes — every accepted bundle root must sit
+	// under one of these. EvalSymlinks the parents too so the
+	// comparison is realpath-vs-realpath.
+	tmpReal, _ := filepath.EvalSymlinks(os.TempDir())
+	homeReal, _ := filepath.EvalSymlinks(paths.AgentHome())
+	profileReal, _ := filepath.EvalSymlinks(paths.ProfileHome(profile))
+	allowed := []string{tmpReal, homeReal, profileReal}
+	for _, prefix := range allowed {
+		if prefix == "" {
+			continue
+		}
+		if pathHasPrefix(resolved, prefix) {
+			return resolved, nil
+		}
+	}
+	return "", fmt.Errorf("bundle_path %q must be under temp dir or agent home", raw)
+}
+
+// pathHasPrefix reports whether path is exactly prefix or a child
+// of prefix. Pure-prefix string comparison is wrong because
+// "/tmp-evil/bundle" would falsely match prefix "/tmp"; we require
+// either equality or a separator at the boundary.
+func pathHasPrefix(path, prefix string) bool {
+	if path == prefix {
+		return true
+	}
+	sep := string(filepath.Separator)
+	if !strings.HasSuffix(prefix, sep) {
+		prefix += sep
+	}
+	return strings.HasPrefix(path, prefix)
 }
 
 // writeMarketplaceError translates the four well-known install

@@ -139,7 +139,15 @@ func TestMarketplaceInstall_UntrustedPublisher(t *testing.T) {
 
 func TestMarketplaceInstall_BundleNotFound(t *testing.T) {
 	_, mux := setupMarketplaceServer(t)
-	body, _ := json.Marshal(marketplaceInstallRequest{BundlePath: "/nonexistent/x"})
+	// Use a path that's well-formed (absolute, under temp) but
+	// doesn't actually exist — sanitiseBundlePath rejects with
+	// "invalid_request" before LoadBundle would have returned
+	// "bundle_invalid". Either is a valid 400 from the caller's
+	// POV; the test just pins the exact code so a future change
+	// is detected.
+	body, _ := json.Marshal(marketplaceInstallRequest{
+		BundlePath: filepath.Join(t.TempDir(), "does-not-exist"),
+	})
 	req := httptest.NewRequest("POST", "/v1/marketplace/install", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -149,8 +157,41 @@ func TestMarketplaceInstall_BundleNotFound(t *testing.T) {
 	}
 	var apiErr APIError
 	_ = json.Unmarshal(w.Body.Bytes(), &apiErr)
-	if apiErr.Code != "bundle_invalid" {
-		t.Errorf("code = %q, want bundle_invalid", apiErr.Code)
+	if apiErr.Code != "invalid_request" {
+		t.Errorf("code = %q, want invalid_request", apiErr.Code)
+	}
+}
+
+// TestMarketplaceInstall_RelativePath verifies the absolute-path
+// requirement of sanitiseBundlePath.
+func TestMarketplaceInstall_RelativePath(t *testing.T) {
+	_, mux := setupMarketplaceServer(t)
+	body, _ := json.Marshal(marketplaceInstallRequest{BundlePath: "relative/path"})
+	req := httptest.NewRequest("POST", "/v1/marketplace/install", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	var apiErr APIError
+	_ = json.Unmarshal(w.Body.Bytes(), &apiErr)
+	if apiErr.Code != "invalid_request" {
+		t.Errorf("code = %q, want invalid_request", apiErr.Code)
+	}
+}
+
+// TestMarketplaceInstall_OutsideAllowlist confirms a path under /etc
+// (or another non-allowlisted parent) is rejected.
+func TestMarketplaceInstall_OutsideAllowlist(t *testing.T) {
+	_, mux := setupMarketplaceServer(t)
+	body, _ := json.Marshal(marketplaceInstallRequest{BundlePath: "/etc"})
+	req := httptest.NewRequest("POST", "/v1/marketplace/install", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 
