@@ -442,20 +442,23 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 | Metric | Value |
 |---|---|
-| Latest release | [v0.4.4](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
+| Latest release | [v0.6.0](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
 | Platforms | Windows, macOS, Linux |
-| Go test functions | 269 (across 22 packages) |
-| HTTP endpoints | 56 (across 13 `/v1/*` resource groups) |
-| React screens | 15 |
+| Go test functions | 242 (across 17 packages) |
+| Vitest cases (desktop) | 73 |
+| HTTP endpoints | 64 (across 15 `/v1/*` resource groups) |
+| React screens | 18 |
 | Approval patterns | 103 (Dangerous + Catastrophic) |
 | Supported LLM providers | 9 |
-| Built-in tools | 22+ (includes `skill_manage`, `skill_view`, `skills_list`, `skill_review`, `skill_curator`) |
+| Built-in tools | 22+ (includes `interact`, `skill_manage`, `skill_view`, `skills_list`, `skill_review`, `skill_curator`) |
 | Self-healing skill system | Phase 11 — proposal queue, reviewer + curator agents, history+rollback |
-| Recovery + redaction foundation | Phase 12 WS1 (`internal/secret/`) + WS2 (`internal/recovery/`) landed on main — endpoints exposed, wiring into tool execution scheduled for 0.5.0 |
-| Documentation | 42 manual documents |
+| Trust-First substrate | Phase 12 — `internal/secret/` (HMAC redaction + keyring), `internal/recovery/` (action journal, snapshots, reversers, two-lane History UI), `internal/taskrunner/` (durable task runner with CAS + heartbeat reaper), per-session cost budgets |
+| macOS permission wizard | Phase 12 WS#5 — Tauri Setup step probes Accessibility / Screen Recording / Automation / Full Disk Access via public TCC APIs only, with MDM-managed banner |
+| SaaS deep-link library | Phase 12 + Phase 13 WS#13.F — Gmail / Stripe / Google Calendar / Slack / Notion / Jira URL builders in `internal/saaslinks/` (sealed contract; tools that consume these arrive in Phase 13) |
+| Documentation | 3 manual documents (Table of Contents · HTTP API Reference · Changelog) + 2 design docs (`docs/design/phase12.md`, `docs/design/phase13.md`) |
 | License | MIT |
 
-Pan-Agent has reached **full feature parity with its predecessor (Pan Desktop / Hermes Desktop)** plus cross-platform support — see [CHANGELOG.md](CHANGELOG.md) for the version history.
+Pan-Agent shipped Phase 12 ("Trust-First Desktop Automation") in v0.6.0 on 2026-04-26 — every backend workstream (browser persistence + cost budgets, action journal + recovery, vision + interact tool, durable task runner, macOS permission wizard) now has its desktop counterpart. Phase 13 is in progress: see [`docs/design/phase13.md`](docs/design/phase13.md) for the workstream sequencing and [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ---
 
