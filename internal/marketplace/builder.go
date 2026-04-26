@@ -73,7 +73,14 @@ func BuildManifest(sourceDir string, opts BuildOptions) (*Manifest, error) {
 		return nil, fmt.Errorf("marketplace: BuildManifest: %q is not a directory", abs)
 	}
 
-	var files []ManifestFile
+	// Pass 1: walk + collect relative paths only. Doing I/O on the
+	// walked paths inside the callback is a known TOCTOU pattern
+	// (gosec flags it: a symlink swap between Walk seeing the entry
+	// and the open syscall could redirect the read). The walk does
+	// stat-style checks (IsDir, ModeSymlink) which are cheap + safe;
+	// the actual file open + hash happens in Pass 2 against an
+	// os.Root-rooted file descriptor that refuses path escapes.
+	var rels []string
 	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -102,34 +109,36 @@ func BuildManifest(sourceDir string, opts BuildOptions) (*Manifest, error) {
 		if opts.Skip != nil && opts.Skip(rel) {
 			return nil
 		}
-		// Hash + size while we have the file open so the on-disk
-		// state is consistent (vs. doing a separate stat then read).
-		f, err := os.Open(path) //nolint:gosec // walking a caller-supplied dir
-		if err != nil {
-			return fmt.Errorf("open %q: %w", rel, err)
-		}
-		h := sha256.New()
-		size, err := io.Copy(h, f)
-		f.Close()
-		if err != nil {
-			return fmt.Errorf("read %q: %w", rel, err)
-		}
-		if size > MaxBundleFileSize {
-			return fmt.Errorf("file %q size %d exceeds cap %d",
-				rel, size, MaxBundleFileSize)
-		}
-		files = append(files, ManifestFile{
-			Path:   rel,
-			SHA256: hex.EncodeToString(h.Sum(nil)),
-			Size:   size,
-		})
+		rels = append(rels, rel)
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marketplace: BuildManifest: %w", err)
 	}
-	if len(files) == 0 {
+	if len(rels) == 0 {
 		return nil, fmt.Errorf("marketplace: BuildManifest: no files under %q", abs)
+	}
+
+	// Pass 2: hash each file via os.Root.Open which refuses paths that
+	// escape the root via symlink — this is the gosec-recommended
+	// alternative to doing I/O inside a Walk callback.
+	root, err := os.OpenRoot(abs)
+	if err != nil {
+		return nil, fmt.Errorf("marketplace: BuildManifest: open root: %w", err)
+	}
+	defer root.Close()
+
+	files := make([]ManifestFile, 0, len(rels))
+	for _, rel := range rels {
+		size, sum, err := hashRootFile(root, rel)
+		if err != nil {
+			return nil, fmt.Errorf("marketplace: BuildManifest: %w", err)
+		}
+		if size > MaxBundleFileSize {
+			return nil, fmt.Errorf("marketplace: BuildManifest: file %q size %d exceeds cap %d",
+				rel, size, MaxBundleFileSize)
+		}
+		files = append(files, ManifestFile{Path: rel, SHA256: sum, Size: size})
 	}
 
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
@@ -144,6 +153,27 @@ func BuildManifest(sourceDir string, opts BuildOptions) (*Manifest, error) {
 		SignedAt: signedAt,
 		Files:    files,
 	}, nil
+}
+
+// hashRootFile opens rel inside root, hashes it, and returns
+// (size, hex-sha256, error). Using root.Open instead of os.Open(path)
+// is the gosec-recommended way to avoid TOCTOU symlink races during
+// directory walks: Root.Open refuses any path that would escape the
+// root via a symbolic link, so a producer that swaps a regular file
+// for a symlink between the walk pass and the open call cannot
+// trick us into hashing /etc/passwd.
+func hashRootFile(root *os.Root, rel string) (int64, string, error) {
+	f, err := root.Open(filepath.FromSlash(rel))
+	if err != nil {
+		return 0, "", fmt.Errorf("open %q: %w", rel, err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	size, err := io.Copy(h, f)
+	if err != nil {
+		return 0, "", fmt.Errorf("read %q: %w", rel, err)
+	}
+	return size, hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // SkipDotfilesAndBuildArtefacts is a convenience Skip predicate
