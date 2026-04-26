@@ -160,7 +160,7 @@ func TestBase64URLNoPad_MatchesStdlib(t *testing.T) {
 		[]byte("abc"),
 		[]byte("abcd"),
 		[]byte("evt_abc primary"),
-		[]byte{0xff, 0xfe, 0xfd, 0xfc, 0xfb},
+		{0xff, 0xfe, 0xfd, 0xfc, 0xfb},
 		[]byte("Hello, world! 🌍"), // mixed-byte unicode
 	}
 	for _, c := range cases {
