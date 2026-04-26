@@ -245,6 +245,31 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// predictable position regardless of how many turns have happened.
 	msgs := buildMessagesWithSkills(systemPrompt, skillsInventoryMessage(s.profile), req.Messages)
 
+	// ----------------------------------------------- RAG retrieval (WS#13.B)
+	// Gated by PAN_AGENT_RAG_RETRIEVAL + a configured index. When both
+	// are present, embed the user's latest message and inject the top-K
+	// most-similar prior messages from this session as a synthetic
+	// user-role message. Positioned BEFORE req.Messages (and AFTER the
+	// stable skills inventory) so prompt cache stays mostly warm —
+	// only the RAG slot churns turn-to-turn, and only when the
+	// retrieved set actually differs.
+	if hits := s.retrieveRAGContext(ctx, sessionID, lastUserMessage(req.Messages)); len(hits) > 0 {
+		if ctxMsg := ragContextMessage(hits); ctxMsg.Content != "" {
+			// Insert just before req.Messages. msgs currently is:
+			//   [system, skills_inventory, ...req.Messages]
+			// We splice in at len(msgs) - len(req.Messages).
+			split := len(msgs) - len(req.Messages)
+			if split < 0 {
+				split = len(msgs)
+			}
+			withCtx := make([]llm.Message, 0, len(msgs)+1)
+			withCtx = append(withCtx, msgs[:split]...)
+			withCtx = append(withCtx, ctxMsg)
+			withCtx = append(withCtx, msgs[split:]...)
+			msgs = withCtx
+		}
+	}
+
 	// ============================================================ agent loop
 	const maxTurns = 20 // safety cap to prevent runaway loops
 	budgetWarned := false
