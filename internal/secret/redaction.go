@@ -25,6 +25,15 @@ const (
 	CatJWT        Category = "JWT"
 	CatAWSKeyID   Category = "AWS_KEY_ID"
 	CatBearer     Category = "BEARER_TOKEN"
+	// Phase 13 WS#13.G additions — provider-specific token shapes
+	// the security-engineer plan flagged as must-land alongside the
+	// LLM-redaction pipeline. Each one is more specific than the
+	// generic API_KEY catch-all, so they appear earlier in
+	// builtinPatterns to win the sequential-classifier race.
+	CatSlackToken  Category = "SLACK_TOKEN"
+	CatStripeKey   Category = "STRIPE_KEY"
+	CatGitHubToken Category = "GITHUB_TOKEN"
+	CatGCPKey      Category = "GCP_PRIVATE_KEY"
 )
 
 // ErrRedactionUnavailable is returned by Ready() when the redaction subsystem

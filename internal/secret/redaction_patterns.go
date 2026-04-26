@@ -52,21 +52,89 @@ var (
 	// Generic high-entropy API key patterns: key/token/secret/password =<value>.
 	apiKeyRe = regexp.MustCompile(
 		`(?i)(?:api[_-]?key|token|secret|password|passwd|pwd)\s*[:=]\s*["']?([A-Za-z0-9\-._~+/!@#$%^&*]{20,})["']?`)
+
+	// Phase 13 WS#13.G — provider-specific recognizers added per the
+	// security-engineer plan. Each is intentionally tighter than the
+	// generic API_KEY catch-all so the redacted token surfaces the
+	// right CATEGORY tag (helps both the audit-lane UI and a human
+	// reviewer noticing "ah, a real Slack bot token leaked").
+
+	// Slack tokens — bot/user/app/legacy. Format documented at
+	// https://api.slack.com/authentication/token-types
+	//   xoxb-<10+>-<10+>-<24+>           bot tokens
+	//   xoxp-<10+>-<10+>-<10+>-<32+>    user tokens
+	//   xoxa-<10+>-<10+>-<10+>-<32+>    workspace app tokens
+	//   xoxr-<10+>-<10+>-<10+>-<32+>    refresh tokens
+	//   xoxe.<rest>                      configuration tokens (newer)
+	slackTokenRe = regexp.MustCompile(
+		`xox[baprse][-.][A-Za-z0-9-]{10,}`)
+
+	// Stripe API keys — restricted (rk_), secret (sk_), publishable
+	// (pk_), test (sk_test_). Stripe's keys are 32-99 chars after the
+	// prefix (varies by environment + restricted-key shape).
+	// https://stripe.com/docs/keys
+	stripeKeyRe = regexp.MustCompile(
+		`(?:sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|pk_test_)[A-Za-z0-9]{24,}`)
+
+	// GitHub tokens — fine-grained personal access tokens (github_pat_),
+	// classic personal access tokens (ghp_), OAuth access tokens (gho_),
+	// user-to-server (ghu_), server-to-server (ghs_), refresh tokens (ghr_).
+	// https://github.blog/2021-04-05-behind-githubs-new-authentication-token-formats/
+	githubTokenRe = regexp.MustCompile(
+		`(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]{20,}`)
+
+	// GCP service-account private keys — appear as JSON values inside
+	// service-account credential files. We match the literal PEM
+	// header/footer that always wraps the private key body, plus
+	// everything between, even when escaped (\n) for JSON. The body
+	// itself is base64 + line breaks; the surrounding markers are the
+	// stable signal.
+	//
+	// Match (?s) so . matches newlines (a real PEM block spans many
+	// lines; escaped JSON form has \n literals so . suffices but we
+	// keep (?s) for robustness across both shapes).
+	gcpPrivateKeyRe = regexp.MustCompile(
+		`(?s)-----BEGIN PRIVATE KEY-----[^-]+-----END PRIVATE KEY-----`)
 )
 
-// builtinPatterns is the ordered classifier table. More specific patterns
-// must come before broader ones — e.g. CreditCard (16 digits, specific BIN
-// prefixes) before Phone (10 digits, generic), and AWSKeyID before APIKey.
+// builtinPatterns is the ordered classifier table. Order is load-bearing
+// because pass 2 of redactInternal runs classifiers sequentially —
+// earlier classifiers' tokenisation shields their region from later
+// classifier regexes. Two ordering rules:
+//
+//  1. Tokens with **unambiguous prefixes** (xoxb-, sk_live_, ghp_,
+//     BEGIN PRIVATE KEY, AKIA…) come first. A Stripe key's digits
+//     would otherwise be redacted as PHONE first, leaving an
+//     `<REDACTED:PHONE:…>` token inside the key that breaks the
+//     Stripe regex's character class.
+//  2. Within each band (provider-specific → AWS → bearer/JWT/API_KEY
+//     → PII) more specific shapes precede broader ones (CC before
+//     Phone within PII; AWS_KEY_ID before generic API_KEY within
+//     credentials).
 var builtinPatterns = []classifier{
-	// PII — specificity descending.
+	// Provider-specific credential shapes — unambiguous prefixes,
+	// must run first so digit runs inside them don't get tagged as
+	// Phone/SSN/CC by the PII band below.
+	{category: CatGCPKey, re: gcpPrivateKeyRe, minLen: 64, maxLen: 8192},
+	{category: CatSlackToken, re: slackTokenRe, minLen: 14, maxLen: 256},
+	{category: CatStripeKey, re: stripeKeyRe, minLen: 27, maxLen: 256},
+	{category: CatGitHubToken, re: githubTokenRe, minLen: 20, maxLen: 256},
+	{category: CatAWSKeyID, re: awsKeyIDRe, minLen: 20, maxLen: 20},
+
+	// Generic credential shapes — JWT and Bearer have distinctive
+	// shape signals (eyJ… for JWT, "Bearer " prefix for Bearer) that
+	// don't overlap with PII; API_KEY is the catch-all and must come
+	// last among credential matchers.
+	{category: CatJWT, re: jwtRe, minLen: 20, maxLen: 4096},
+	{category: CatBearer, re: bearerRe, minLen: 20, maxLen: 4096},
+	{category: CatAPIKey, re: apiKeyRe, minLen: 20, maxLen: 512},
+
+	// PII — specificity descending. Runs LAST among the regex bands
+	// so digit-only PII patterns (Phone, SSN, CC) don't carve into
+	// provider-specific credentials whose values may contain long
+	// digit runs.
 	{category: CatEmail, re: emailRe, negative: docsEmailRe, minLen: 6, maxLen: 254},
 	{category: CatCreditCard, re: ccRe, negative: testCCRe, minLen: 13, maxLen: 19},
 	{category: CatSSN, re: ssnRe, negative: invalidSSNRe, minLen: 9, maxLen: 11},
 	{category: CatPhone, re: phoneRe, minLen: 10, maxLen: 20},
-
-	// Credentials — order matters: AWS before generic API_KEY.
-	{category: CatAWSKeyID, re: awsKeyIDRe, minLen: 20, maxLen: 20},
-	{category: CatJWT, re: jwtRe, minLen: 20, maxLen: 4096},
-	{category: CatBearer, re: bearerRe, minLen: 20, maxLen: 4096},
-	{category: CatAPIKey, re: apiKeyRe, minLen: 20, maxLen: 512},
 }
