@@ -165,6 +165,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/recovery/undo/{receiptID}", s.handleRecoveryUndo)
 	mux.HandleFunc("GET /v1/recovery/diff/{receiptID}", s.handleRecoveryDiff)
 
+	// -------------------------------------------------------------------- rag
+	// Phase 13 WS#13.B — semantic-search index over chat history.
+	// Endpoints 503 when no embedder has been attached via
+	// Server.AttachRAGIndex; the desktop UI surfaces a setup hint
+	// based on /v1/rag/health's "configured" flag.
+	mux.HandleFunc("POST /v1/rag/index", s.handleRAGIndex)
+	mux.HandleFunc("POST /v1/rag/search", s.handleRAGSearch)
+	mux.HandleFunc("DELETE /v1/rag/sessions/{id}/embeddings", s.handleRAGSessionEmbeddingsDelete)
+	mux.HandleFunc("GET /v1/rag/health", s.handleRAGHealth)
+
 	// ----------------------------------------------------------------- health
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 

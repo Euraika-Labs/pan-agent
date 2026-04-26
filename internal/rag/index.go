@@ -84,6 +84,13 @@ type Index struct {
 	store    Store
 }
 
+// Embedder returns the embedder this Index was constructed with.
+// Exposed for HTTP introspection (e.g. /v1/rag/health reporting the
+// active model + dim). Callers should treat the returned interface
+// as read-only — calling Embed directly bypasses the content-hash
+// gate, which is almost never what you want.
+func (idx *Index) Embedder() Embedder { return idx.embedder }
+
 // NewIndex wires the two collaborators. Both must be non-nil — Index
 // has nothing useful to do without an embedder or a store.
 func NewIndex(embedder Embedder, store Store) (*Index, error) {
