@@ -209,6 +209,21 @@ func MarketplaceTrustFile(profile string) string {
 	return filepath.Join(ProfileHome(profile), "marketplace-trust.json")
 }
 
+// MarketplacePublisherSeedFile returns the path to the producer's
+// Ed25519 seed file for WS#13.C bundle signing. Created by
+// `pan-agent skill keygen`, consumed by `pan-agent skill build`.
+//
+// File contents: hex-encoded 32-byte seed, no padding, no newline.
+// Mode 0o600 — only the owner reads it. The keyring is a
+// stronger store, but a flat file with strict perms is portable
+// across the OSes pan-agent runs on (Linux without secret-tool,
+// macOS with code signing requirements that Keychain prompts on,
+// Windows with WCM); a future --use-keyring opt-in can layer on
+// the keyring backend without changing this default.
+func MarketplacePublisherSeedFile(profile string) string {
+	return filepath.Join(ProfileHome(profile), "marketplace-publisher-seed.hex")
+}
+
 // SkillsDir returns the path to the installed skills directory.
 // Structure: <AgentHome>/skills/<category>/<skill-name>/SKILL.md
 func SkillsDir() string {
