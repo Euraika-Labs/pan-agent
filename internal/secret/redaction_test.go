@@ -13,7 +13,16 @@ import (
 // GOLDEN_VERSION must be bumped whenever redaction_patterns.go changes in a
 // way that alters the golden fixture output. This forces an explicit reviewer
 // sign-off that the pattern change is intentional.
-const GOLDEN_VERSION = 1
+//
+// Version 2 (Phase 13 WS#13.G): adds CatGCPKey / CatSlackToken /
+// CatStripeKey / CatGitHubToken recognizers ahead of the generic
+// CatAPIKey, and reorders builtinPatterns so provider-specific
+// shapes run before the PII band (preventing a 10-digit run inside
+// a Stripe key from being tagged as PHONE first). The golden
+// fixture's `Authorization: Token ghp_…` line now redacts as
+// <REDACTED:GITHUB_TOKEN:…> instead of passing through, and the
+// per-line token shape changes wherever new categories now apply.
+const GOLDEN_VERSION = 2
 
 // expectedGoldenSHA256 is the SHA-256 digest (hex, lowercase) of the redacted
 // output produced from testdata/redaction_golden.txt with the test HMAC key
@@ -25,7 +34,7 @@ const GOLDEN_VERSION = 1
 //
 // IMPORTANT: If this digest changes without a corresponding GOLDEN_VERSION
 // bump, the test fails loudly and the coder must re-review all patterns.
-const expectedGoldenSHA256 = "0e169761a670c0af18f576dcf1d6a7d8e272de2ce756af99418e57a58c771dae"
+const expectedGoldenSHA256 = "156e8340e470aa16f14658fed439b9a8379cab6d6190a0981217283995bb8334"
 
 // ---------------------------------------------------------------------------
 // TestMain — install deterministic HMAC key before any test runs.
@@ -124,8 +133,12 @@ func TestRedactDeterministic(t *testing.T) {
 			"SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
 			category: CatJWT},
 
-		// Bearer token (non-JWT)
-		{name: "bearer-opaque", input: "Authorization: Bearer ghp_16C7e42F292c6912E7710c838347Ae178B4a", category: CatBearer},
+		// Bearer token (non-JWT, non-provider-specific). Originally
+		// used a `ghp_…` GitHub PAT here as a generic placeholder, but
+		// the Phase 13 WS#13.G GITHUB_TOKEN recognizer now correctly
+		// picks that prefix up — so use a base64-shaped opaque value
+		// that maps cleanly to the generic Bearer category.
+		{name: "bearer-opaque", input: "Authorization: Bearer YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXowMTIzNDU2Nzg5", category: CatBearer},
 
 		// Generic API key
 		{name: "api-key-header", input: "X-API-Key: sk-abc123def456ghi789jkl012mno345pqr678", category: CatAPIKey},
