@@ -104,8 +104,7 @@ mod imp {
                     String::from_utf8_lossy(&o.stdout),
                     String::from_utf8_lossy(&o.stderr),
                 );
-                !combined.contains("no configuration profiles")
-                    && !combined.is_empty()
+                !combined.contains("no configuration profiles") && !combined.is_empty()
             }
             Err(_) => false,
         }
