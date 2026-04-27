@@ -55,11 +55,15 @@ type Server struct {
 	recoveryOnce sync.Once
 	recoveryH    *recovery.Handler
 
-	// ragMu guards ragIndex. Phase 13 WS#13.B — the index is wired in
-	// after construction (so the desktop UI can hot-swap embedders);
-	// nil means "not configured" and handlers respond 503.
-	ragMu    sync.RWMutex
-	ragIndex *rag.Index
+	// ragMu guards ragIndex + ragWatcher. Phase 13 WS#13.B — the
+	// index is wired in after construction (so the desktop UI can
+	// hot-swap embedders); nil means "not configured" and handlers
+	// respond 503. The watcher runs as a goroutine, so its lifetime
+	// is server-bound: StartRAGWatcher arms it (called from Start),
+	// StopRAGWatcher halts it (called from Stop).
+	ragMu      sync.RWMutex
+	ragIndex   *rag.Index
+	ragWatcher *rag.Watcher
 }
 
 // getLLMClient returns the current LLM client under a read lock.
@@ -127,6 +131,16 @@ func (s *Server) Start() error {
 	if err := writePidFile(); err != nil {
 		fmt.Fprintf(os.Stderr, "pan-agent: warning: PID file write failed: %v\n", err)
 	}
+
+	// Phase 13 WS#13.B — best-effort RAG watcher startup. Reads env
+	// vars (see ConfigureRAGFromEnv); if unconfigured this is a no-op
+	// and chat continues to work without semantic-recall context.
+	// Failure to start the watcher logs but does NOT block the
+	// listener — RAG is augmentative, not required.
+	if err := s.ConfigureRAGFromEnv(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "pan-agent: warning: RAG watcher disabled: %v\n", err)
+	}
+
 	fmt.Printf("pan-agent API listening on http://%s\n", s.Addr)
 	return s.httpServer.Serve(ln)
 }
@@ -144,6 +158,9 @@ func writePidFile() error {
 // Stop gracefully shuts down the server. It waits for in-flight requests to
 // finish or until ctx is cancelled, whichever comes first.
 func (s *Server) Stop(ctx context.Context) error {
+	// Halt the RAG watcher first so it doesn't try to write to a
+	// closing DB. Idempotent + safe when no watcher was attached.
+	s.StopRAGWatcher()
 	return s.httpServer.Shutdown(ctx)
 }
 
