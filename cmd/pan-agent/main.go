@@ -7,6 +7,7 @@
 //	pan-agent version                                   Print version info
 //	pan-agent doctor                                    Check system health
 //	pan-agent skill  verify <bundle-path>               Verify a marketplace bundle
+//	pan-agent tools  list                               List registered tools
 //
 // Default (no subcommand): serve
 package main
@@ -70,8 +71,10 @@ func run(args []string) error {
 		return cmdMigrateOffice(args)
 	case "skill":
 		return cmdSkill(args)
+	case "tools":
+		return cmdTools(args)
 	default:
-		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor|migrate-office|skill>", sub)
+		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor|migrate-office|skill|tools>", sub)
 	}
 }
 
