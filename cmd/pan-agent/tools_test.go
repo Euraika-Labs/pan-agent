@@ -19,6 +19,12 @@ import (
 // captureStdout runs fn with os.Stdout redirected to a buffer + returns
 // the captured bytes. Used because the cmdTools helpers print to stdout
 // directly.
+//
+// Implementation note: the pipe buffer is small (≈4KB on Windows). If
+// fn writes more output than fits, it'll block on the write — so the
+// drain goroutine has to run CONCURRENTLY with fn, not after it. Caught
+// by Windows CI on PR #65 where TestCmdToolsList_JSON hung because the
+// JSON output exceeded the pipe buffer.
 func captureStdout(t *testing.T, fn func() error) (string, error) {
 	t.Helper()
 	old := os.Stdout
@@ -28,17 +34,18 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	}
 	os.Stdout = w
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- fn() }()
+	var buf bytes.Buffer
+	copyDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(copyDone)
+	}()
 
-	// Closing the writer unblocks the reader. We have to do that
-	// AFTER the function returns, so we drain the function first.
-	runErr := <-errCh
-	w.Close()
+	runErr := fn()
+	_ = w.Close() // unblocks the io.Copy goroutine
+	<-copyDone
 	os.Stdout = old
 
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
 	return buf.String(), runErr
 }
 
