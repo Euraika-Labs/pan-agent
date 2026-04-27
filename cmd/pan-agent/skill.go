@@ -12,23 +12,34 @@ import (
 )
 
 // cmdSkill dispatches the `pan-agent skill <action> ...` subcommands.
-// Currently the only action is `verify`, but `pin`, `unpin`, and
-// `list` are slated for follow-up so a power user can manage the
-// marketplace trust set without standing up the desktop UI.
+//
+// Producer-side (publishing a bundle):
+//
+//	keygen   Generate a publisher keypair, save seed to the profile.
+//	build    Sign a directory tree into a marketplace bundle.
+//
+// Consumer-side (installing / inspecting a bundle):
+//
+//	verify   Validate signature + manifest layout, print metadata.
+//	trust    list / pin / unpin pinned publishers.
 func cmdSkill(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf(
-			"missing skill action — usage: pan-agent skill [verify|trust]")
+			"missing skill action — usage: pan-agent skill [verify|build|keygen|trust]")
 	}
 	action := args[0]
 	rest := args[1:]
 	switch action {
 	case "verify":
 		return cmdSkillVerify(rest)
+	case "build":
+		return cmdSkillBuild(rest)
+	case "keygen":
+		return cmdSkillKeygen(rest)
 	case "trust":
 		return cmdSkillTrust(rest)
 	default:
-		return fmt.Errorf("unknown skill action %q — usage: pan-agent skill [verify|trust]",
+		return fmt.Errorf("unknown skill action %q — usage: pan-agent skill [verify|build|keygen|trust]",
 			action)
 	}
 }
