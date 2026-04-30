@@ -24,12 +24,15 @@ jobs:
           - platform: windows
             runner: windows-latest
             go-binary: pan-agent-x86_64-pc-windows-msvc.exe
+            cli-binary: pan-0.0.0-windows-x64.exe
           - platform: macos-arm
             runner: macos-latest
             go-binary: pan-agent-aarch64-apple-darwin
+            cli-binary: pan-0.0.0-macos-arm64
           - platform: linux
             runner: ubuntu-22.04
             go-binary: pan-agent-x86_64-unknown-linux-gnu
+            cli-binary: pan-0.0.0-linux-x64
     steps:
       - uses: actions/checkout@v6
 
@@ -80,6 +83,21 @@ jobs:
                       -X github.com/euraika-labs/pan-agent/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o desktop/src-tauri/binaries/${{ matrix.settings.go-binary }} \
             ./cmd/pan-agent
+
+      - name: Build Pan CLI
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-arm' && '14.0' || '' }}
+        run: |
+          mkdir -p release-cli
+          CLI_BINARY="${{ matrix.settings.cli-binary }}"
+          CLI_BINARY="${CLI_BINARY/0.0.0/${{ steps.version.outputs.version }}}"
+          go build \
+            -ldflags "-X github.com/euraika-labs/pan-agent/internal/version.Version=${{ steps.version.outputs.version }} \
+                      -X github.com/euraika-labs/pan-agent/internal/version.Commit=$(git rev-parse --short HEAD) \
+                      -X github.com/euraika-labs/pan-agent/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "release-cli/${CLI_BINARY}" \
+            ./cmd/pan
 
       - name: Install desktop dependencies
         working-directory: desktop
@@ -166,6 +184,12 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      - name: Upload Pan CLI binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" release-cli/* --clobber
 
   # ---------------------------------------------------------------------------
   # Post-release: publish SHA256 hashes + open a WDSI submission checklist.

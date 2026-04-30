@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-04-30
+
+### Added
+- **Standalone `pan` terminal CLI** (`cmd/pan`) for users who want Pan Agent in
+  a terminal without launching Pan Desktop.
+  - Interactive chat opens with a PAN AGENT terminal shell, banner, active
+    profile/model/provider/base URL status, and streaming replies.
+  - One-shot mode via `pan -z "prompt"` / `pan chat -z "prompt"` prints only
+    the final response text for scripts and pipes.
+  - Top-level command parser with `pan help`, `pan --help`, `pan version`,
+    `pan chat`, `pan model`, `pan status`, `pan config`, and `pan doctor`.
+  - Per-command help via `pan <command> --help`.
+  - Runtime overrides via `--profile`, `--model` / `-m`, and `--provider`.
+  - Custom launcher aliases via `pan configure profile <name>` so users can run
+    Pan Agent as `pan` or as their own command name.
+  - Alias launch detection: when started as `pan`, replies are labelled `PAN`;
+    when started through a custom alias, replies use that alias name.
+  - Alias replacement hardening: reconfiguring from one alias back to a previous
+    Pan-created alias now works even if the marker file was missing.
+- **Branded loading screen** for packaged desktop startup, replacing the plain
+  dark/blue empty WebView with a night-sky PAN AGENT loading screen.
+- Release workflow now attaches cross-platform `pan` CLI binaries for Windows,
+  Linux, and macOS alongside the existing Pan Desktop installers.
+- v0.6.5 Windows release artifacts are now built locally with SHA256 hashes for
+  the NSIS installer, MSI, updater zips, and standalone `pan` CLI executable.
+
+### Fixed
+- Fixed packaged desktop local API calls in WebView2 by routing REST calls
+  through Tauri IPC instead of browser `fetch`.
+- Fixed chat hanging forever in packaged desktop builds by streaming
+  `/v1/chat/completions` through a Rust-side Tauri event bridge.
+- Fixed chat stream startup failures so they surface as visible chat errors
+  instead of leaving the typing bubble on screen indefinitely.
+- Fixed WebView2/CSP loopback failures for config, model, and local API calls.
+- Fixed API key saving in Settings:
+  - explicit Save button behavior,
+  - Enter-to-save support,
+  - masked-key guard so placeholder bullets are not saved as real keys,
+  - provider/model list refresh after saving OpenRouter/OpenAI/Regolo keys,
+  - clearer success/error status copy.
+- Fixed `profile_mismatch` when the desktop saved profile `"default"` while the
+  local server represented the default profile internally as `""`.
+- Fixed active LLM client refresh after config/env saves so newly saved keys are
+  used without restarting the sidecar.
+- Fixed Regolo/OpenAI/OpenRouter model config shape mismatches between the
+  Settings, Models, Chat, and gateway code paths.
+- Fixed gateway API-key selection so Regolo/OpenRouter/OpenAI keys resolve from
+  the saved profile environment consistently.
+- Fixed Settings scrolling and app layout overflow so long Settings pages can be
+  scrolled in the desktop app.
+- Fixed sidebar width/spacing/selection styling so navigation is readable and no
+  longer clipped.
+- Fixed startup blank-screen handling in packaged desktop builds.
+- Fixed release/version metadata for v0.6.5 across Go, npm, Cargo, Tauri config,
+  README, and changelog.
+
 ## [0.6.0] - 2026-04-26
 
 Phase 12 frontend round — every workstream's React/Tauri counterpart
@@ -619,6 +675,8 @@ Phase 11 — self-healing skill system, full feature-parity with hermes-agent's 
 - Tauri v2 + React 19 desktop app with 14 screens
 - GitLab CI + GitHub Actions build pipeline
 
+[0.6.5]: https://github.com/Euraika-Labs/pan-agent/compare/v0.6.0...v0.6.5
+[0.6.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.4.4...v0.5.0
 [0.4.4]: https://github.com/Euraika-Labs/pan-agent/compare/v0.4.3...v0.4.4
 [0.4.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.3.1...v0.4.0

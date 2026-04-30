@@ -195,6 +195,12 @@ interface ModelInfo {
   model: string;
   name: string;
   baseUrl?: string;
+  base_url?: string;
+}
+
+interface ConfigResponse {
+  env: Record<string, string>;
+  model: ModelConfig;
 }
 
 interface MemoryState {
@@ -373,16 +379,15 @@ function Chat({
     try {
       // GET /v1/config returns the full env map; model config lives there too.
       // GET /v1/models returns the list of available models.
-      const [configEnv, savedModels] = await Promise.all([
-        fetchJSON<Record<string, string>>("/v1/config"),
+      const [config, savedModels] = await Promise.all([
+        fetchJSON<ConfigResponse>("/v1/config"),
         fetchJSON<ModelInfo[]>("/v1/models"),
       ]);
 
-      // The Go backend stores model config as PROVIDER / MODEL / BASE_URL env vars.
       const modelConfig: ModelConfig = {
-        provider: configEnv["PROVIDER"] || "auto",
-        model: configEnv["MODEL"] || "",
-        baseUrl: configEnv["BASE_URL"] || "",
+        provider: config.model?.provider || "auto",
+        model: config.model?.model || "",
+        baseUrl: config.model?.baseUrl || "",
       };
 
       setCurrentModel(modelConfig.model);
@@ -403,7 +408,7 @@ function Chat({
           provider: saved.provider,
           model: saved.model,
           label: saved.name,
-          baseUrl: saved.baseUrl || "",
+          baseUrl: saved.baseUrl || saved.base_url || "",
         });
       }
       setModelGroups(Array.from(groupMap.values()));
@@ -782,10 +787,10 @@ function Chat({
 
       case "/model": {
         try {
-          const configEnv = await fetchJSON<Record<string, string>>("/v1/config");
-          const model = configEnv["MODEL"] || "Not set";
-          const prov = configEnv["PROVIDER"] || "auto";
-          const base = configEnv["BASE_URL"] || "";
+          const config = await fetchJSON<ConfigResponse>("/v1/config");
+          const model = config.model?.model || "Not set";
+          const prov = config.model?.provider || "auto";
+          const base = config.model?.baseUrl || "";
           pushLocalResponse(
             `**Current model:** \`${model}\`\n**Provider:** ${prov}${base ? `\n**Base URL:** ${base}` : ""}`,
           );

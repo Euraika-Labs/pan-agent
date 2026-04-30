@@ -64,6 +64,30 @@ interface OperationResult {
   error?: string;
 }
 
+const SECRET_MASK = "***";
+
+const LLM_KEY_PROVIDERS: Record<
+  string,
+  { provider: string; baseUrl: string }
+> = {
+  OPENROUTER_API_KEY: {
+    provider: "openrouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+  },
+  OPENAI_API_KEY: {
+    provider: "openai",
+    baseUrl: "https://api.openai.com/v1",
+  },
+  REGOLO_API_KEY: {
+    provider: "regolo",
+    baseUrl: "https://api.regolo.ai/v1",
+  },
+};
+
+function isMaskedSecret(value: string): boolean {
+  return value.includes(SECRET_MASK);
+}
+
 function getCachedVersion(): string | null {
   try {
     return localStorage.getItem("agent-version-cache");
@@ -81,6 +105,9 @@ function Settings({
 }): React.JSX.Element {
   const [env, setEnv] = useState<Record<string, string>>({});
   const [savedKey, setSavedKey] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<Record<string, string>>({});
+  const [syncResult, setSyncResult] = useState<Record<string, string>>({});
   const [agentHome, setAgentHome] = useState("");
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
   const { theme, setTheme } = useTheme();
@@ -193,22 +220,69 @@ function Settings({
     };
   }, [modelProvider, modelName, modelBaseUrl, saveModelConfig]);
 
-  async function handleBlur(key: string): Promise<void> {
+  async function syncProviderModelsForKey(
+    key: string,
+    value: string,
+  ): Promise<void> {
+    const provider = LLM_KEY_PROVIDERS[key];
+    if (!provider || !value.trim() || isMaskedSecret(value)) return;
+
+    try {
+      const synced = await fetchJSON<unknown[]>("/v1/models/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: provider.provider,
+          base_url: provider.baseUrl,
+          api_key: value.trim(),
+        }),
+      });
+      setSyncResult((prev) => ({
+        ...prev,
+        [key]: `Saved and synced ${synced.length} models`,
+      }));
+    } catch (err) {
+      setSyncResult((prev) => ({
+        ...prev,
+        [key]: `Saved. Model sync failed: ${err instanceof Error ? err.message : String(err)}`,
+      }));
+    }
+  }
+
+  async function handleSaveKey(key: string): Promise<void> {
     const value = env[key] || "";
+    if (isMaskedSecret(value)) {
+      setSaveError((prev) => ({
+        ...prev,
+        [key]: "Already saved. Paste a new full key to replace it.",
+      }));
+      return;
+    }
+    setSavingKey(key);
+    setSaveError((prev) => ({ ...prev, [key]: "" }));
+    setSyncResult((prev) => ({ ...prev, [key]: "" }));
     try {
       await fetchJSON("/v1/config", {
         method: "PUT",
         body: JSON.stringify({ profile, env: { [key]: value } }),
       });
       setSavedKey(key);
+      await syncProviderModelsForKey(key, value);
       setTimeout(() => setSavedKey(null), 2000);
     } catch (err) {
       console.error("[Settings] setEnv error:", err);
+      setSaveError((prev) => ({
+        ...prev,
+        [key]: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      setSavingKey(null);
     }
   }
 
   function handleChange(key: string, value: string): void {
     setEnv((prev) => ({ ...prev, [key]: value }));
+    setSaveError((prev) => ({ ...prev, [key]: "" }));
+    setSyncResult((prev) => ({ ...prev, [key]: "" }));
   }
 
   async function handleAddPoolKey(): Promise<void> {
@@ -615,7 +689,12 @@ function Settings({
                   }
                   value={env[field.key] || ""}
                   onChange={(e) => handleChange(field.key, e.target.value)}
-                  onBlur={() => handleBlur(field.key)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleSaveKey(field.key);
+                    }
+                  }}
                   placeholder={`Enter ${field.label.toLowerCase()}`}
                 />
                 {field.type === "password" && (
@@ -626,8 +705,21 @@ function Settings({
                     {visibleKeys.has(field.key) ? "Hide" : "Show"}
                   </button>
                 )}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => void handleSaveKey(field.key)}
+                  disabled={savingKey === field.key}
+                >
+                  {savingKey === field.key ? "Saving..." : "Save"}
+                </button>
               </div>
               <div className="settings-field-hint">{field.hint}</div>
+              {saveError[field.key] && (
+                <div className="settings-save-error">{saveError[field.key]}</div>
+              )}
+              {syncResult[field.key] && (
+                <div className="settings-save-status">{syncResult[field.key]}</div>
+              )}
             </div>
           ))}
         </div>

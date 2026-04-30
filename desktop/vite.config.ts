@@ -5,6 +5,10 @@ import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Tauri serves the production bundle from its custom protocol. Relative
+  // asset URLs are more reliable there than root-absolute /assets/... paths.
+  base: "./",
+
   plugins: [
     react(),
     tailwindcss(),

@@ -38,7 +38,40 @@
     <title>Pan Desktop</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="
+        min-height:100vh;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        gap:24px;
+        background:
+          linear-gradient(rgba(2, 8, 20, 0.08), rgba(2, 8, 20, 0.18)),
+          url('./loading-night.png') center / cover no-repeat;
+        color:#f8fbff;
+        font-family:'Courier New', ui-monospace, monospace;
+        text-align:center;
+      ">
+        <div style="
+          font-size:clamp(48px, 8vw, 132px);
+          line-height:1;
+          letter-spacing:0.08em;
+          color:#06111f;
+          text-shadow:
+            0 1px 0 rgba(255,255,255,0.45),
+            0 0 28px rgba(180,215,255,0.65);
+          font-weight:700;
+        ">PAN AGENT</div>
+        <div style="
+          font:600 14px/1 ui-sans-serif, system-ui, sans-serif;
+          letter-spacing:0.22em;
+          text-transform:uppercase;
+          color:rgba(235,245,255,0.86);
+          text-shadow:0 2px 14px rgba(0,0,0,0.5);
+        ">Loading</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

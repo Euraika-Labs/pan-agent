@@ -8,8 +8,13 @@ interface SavedModel {
   name: string;
   provider: string;
   model: string;
-  baseUrl: string;
+  baseUrl?: string;
+  base_url?: string;
   createdAt: number;
+}
+
+function modelBaseUrl(model: SavedModel): string {
+  return model.baseUrl || model.base_url || "";
 }
 
 function providerLabel(value: string): string {
@@ -61,7 +66,7 @@ function Models(): React.JSX.Element {
     setFormName(m.name);
     setFormProvider(m.provider);
     setFormModel(m.model);
-    setFormBaseUrl(m.baseUrl);
+    setFormBaseUrl(modelBaseUrl(m));
     setFormError("");
     setShowModal(true);
   }
@@ -90,6 +95,7 @@ function Models(): React.JSX.Element {
             provider: formProvider,
             model,
             baseUrl: formBaseUrl.trim(),
+            base_url: formBaseUrl.trim(),
           }),
         });
       } else {
@@ -100,6 +106,7 @@ function Models(): React.JSX.Element {
             provider: formProvider,
             model,
             baseUrl: formBaseUrl.trim(),
+            base_url: formBaseUrl.trim(),
           }),
         });
       }
@@ -203,7 +210,9 @@ function Models(): React.JSX.Element {
                 </span>
               </div>
               <div className="models-card-model">{m.model}</div>
-              {m.baseUrl && <div className="models-card-url">{m.baseUrl}</div>}
+              {modelBaseUrl(m) && (
+                <div className="models-card-url">{modelBaseUrl(m)}</div>
+              )}
               <div className="models-card-footer">
                 {confirmDelete === m.id ? (
                   <div

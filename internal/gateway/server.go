@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -180,16 +181,43 @@ func (s *Server) resolveProfile(r *http.Request) string {
 	return s.profile
 }
 
+func canonicalProfile(profile string) string {
+	if profile == "" || profile == "default" {
+		return ""
+	}
+	return profile
+}
+
 // refreshLLMClient rebuilds the in-process LLM client from the given model
 // config and the profile's .env file. It acquires llmMu for the swap.
 func (s *Server) refreshLLMClient(baseURL, model, profile string) {
 	env, _ := config.ReadProfileEnv(profile)
-	apiKey := env["REGOLO_API_KEY"]
+	lowerBaseURL := strings.ToLower(baseURL)
+	apiKey := ""
+	switch {
+	case strings.Contains(lowerBaseURL, "openrouter.ai"):
+		apiKey = env["OPENROUTER_API_KEY"]
+	case strings.Contains(lowerBaseURL, "anthropic.com"):
+		apiKey = env["ANTHROPIC_API_KEY"]
+	case strings.Contains(lowerBaseURL, "regolo.ai"):
+		apiKey = env["REGOLO_API_KEY"]
+	case strings.Contains(lowerBaseURL, "groq.com"):
+		apiKey = env["GROQ_API_KEY"]
+	}
+	if apiKey == "" {
+		apiKey = env["REGOLO_API_KEY"]
+	}
+	if apiKey == "" {
+		apiKey = env["OPENROUTER_API_KEY"]
+	}
 	if apiKey == "" {
 		apiKey = env["OPENAI_API_KEY"]
 	}
 	if apiKey == "" {
 		apiKey = env["API_KEY"]
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENROUTER_API_KEY")
 	}
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")

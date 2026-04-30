@@ -628,7 +628,7 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	// kept the current profile — so the UI would appear to have updated
 	// settings that actually landed elsewhere. Per-profile configuration
 	// must be made by a server started with the target profile.
-	if profile != s.profile {
+	if canonicalProfile(profile) != canonicalProfile(s.profile) {
 		writeAPIError(w, http.StatusBadRequest, "profile_mismatch",
 			fmt.Sprintf("cannot write config for profile %q from server bound to %q — "+
 				"restart pan-agent with --profile %s", profile, s.profile, profile),
@@ -637,11 +637,13 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update env values.
+	envChanged := false
 	for k, v := range body.Env {
 		if err := config.SetProfileEnvValue(profile, k, v); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		envChanged = true
 	}
 
 	// Update model config. Treat empty strings as "keep existing" rather
@@ -670,6 +672,12 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.refreshLLMClient(baseURL, model, profile)
+	}
+	if body.Model == nil && envChanged {
+		current := config.GetModelConfig(profile)
+		if current.BaseURL != "" || current.Model != "" {
+			s.refreshLLMClient(current.BaseURL, current.Model, profile)
+		}
 	}
 
 	// Update credential pool.

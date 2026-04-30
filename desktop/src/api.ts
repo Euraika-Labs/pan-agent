@@ -4,8 +4,64 @@
  * The backend listens on localhost:8642.
  * REST calls use fetchJSON; streaming responses (chat) use streamSSE.
  */
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isTauri } from "./lib/tauri";
 
-const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8642";
+export const API_BASE =
+  import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8642";
+const NETWORK_RETRY_DELAYS_MS = [150, 350, 750, 1500];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isNetworkFetchError(err: unknown): boolean {
+  return err instanceof TypeError && /fetch/i.test(err.message);
+}
+
+interface ApiFetchResponse {
+  status: number;
+  body: string;
+}
+
+interface ApiStreamEvent {
+  kind: "status" | "chunk" | "error" | "done";
+  status?: number;
+  data?: string;
+  error?: string;
+}
+
+async function browserFetch(path: string, options?: RequestInit): Promise<Response> {
+  let res: Response;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        headers: { "Content-Type": "application/json", ...options?.headers },
+        ...options,
+      });
+      break;
+    } catch (err) {
+      const retryable =
+        isNetworkFetchError(err) && attempt < NETWORK_RETRY_DELAYS_MS.length;
+      if (!retryable) {
+        throw new Error(
+          `Could not reach local Pan API at ${API_BASE}${path}. ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      await sleep(NETWORK_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  return res;
+}
+
+async function tauriFetch(path: string, options?: RequestInit): Promise<ApiFetchResponse> {
+  return invoke<ApiFetchResponse>("api_fetch", {
+    method: options?.method ?? "GET",
+    path,
+    body: typeof options?.body === "string" ? options.body : null,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // JSON helper
@@ -23,10 +79,15 @@ export async function fetchJSON<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
+  if (isTauri()) {
+    const res = await tauriFetch(path, options);
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(res.body || `HTTP ${res.status}`);
+    }
+    return res.body ? (JSON.parse(res.body) as T) : (undefined as T);
+  }
+
+  const res = await browserFetch(path, options);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `HTTP ${res.status}`);
@@ -65,11 +126,92 @@ export function streamSSE(
   onEvent: (event: Record<string, unknown>) => void,
 ): () => void {
   const controller = new AbortController();
+  let cancelled = false;
+  let tauriUnlisten: UnlistenFn | null = null;
+
+  const emitError = (message: string) => {
+    if (cancelled) return;
+    onEvent({ type: "error", error: message });
+  };
+
+  const handleSSELine = (line: string): boolean => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith(":")) return false; // empty / comment
+
+    if (trimmed.startsWith("data: ")) {
+      const data = trimmed.slice(6);
+      if (data === "[DONE]") return true;
+      try {
+        onEvent(JSON.parse(data));
+      } catch {
+        // Ignore non-JSON data lines (plain-text chunks, etc.)
+      }
+    }
+    return false;
+  };
 
   (async () => {
+    if (isTauri()) {
+      const streamId =
+        globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+      let status = 200;
+      let tauriBuffer = "";
+      try {
+        tauriUnlisten = await listen<ApiStreamEvent>(
+          `api-stream:${streamId}`,
+          (evt) => {
+            if (cancelled) return;
+            const payload = evt.payload;
+            if (payload.kind === "status") {
+              status = payload.status ?? 200;
+            } else if (payload.kind === "chunk") {
+              if (status >= 200 && status < 300) {
+                tauriBuffer += payload.data ?? "";
+                const lines = tauriBuffer.split("\n");
+                tauriBuffer = lines.pop() ?? "";
+                for (const line of lines) {
+                  if (handleSSELine(line)) {
+                    cancelled = true;
+                    tauriUnlisten?.();
+                    return;
+                  }
+                }
+              }
+            } else if (payload.kind === "error") {
+              emitError(payload.error || "Local API stream failed");
+              cancelled = true;
+              tauriUnlisten?.();
+            } else if (payload.kind === "done") {
+              if (tauriBuffer) {
+                handleSSELine(tauriBuffer);
+                tauriBuffer = "";
+              }
+              if (status < 200 || status >= 300) {
+                emitError(`HTTP ${status}`);
+              }
+              cancelled = true;
+              tauriUnlisten?.();
+            }
+          },
+        );
+        await invoke("api_stream", {
+          path,
+          body: JSON.stringify(body),
+          streamId,
+        });
+      } catch (err) {
+        if (!cancelled) {
+          console.error("[streamSSE] Tauri local API request failed:", err);
+          emitError(err instanceof Error ? err.message : String(err));
+        }
+        tauriUnlisten?.();
+      }
+      return;
+    }
+
     let res: Response;
     try {
-      res = await fetch(`${BASE}${path}`, {
+      res = await fetch(`${API_BASE}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -78,6 +220,9 @@ export function streamSSE(
     } catch (err) {
       if ((err as DOMException).name !== "AbortError") {
         console.error("[streamSSE] fetch failed:", err);
+        emitError(
+          `Could not reach local Pan API at ${API_BASE}${path}. ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       return;
     }
@@ -85,6 +230,7 @@ export function streamSSE(
     if (!res.ok || !res.body) {
       const text = await res.text().catch(() => `HTTP ${res.status}`);
       console.error("[streamSSE] bad response:", text);
+      emitError(text || `HTTP ${res.status}`);
       return;
     }
 
@@ -105,20 +251,10 @@ export function streamSSE(
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith(":")) continue; // empty / comment
-
-          if (trimmed.startsWith("data: ")) {
-            const data = trimmed.slice(6);
-            if (data === "[DONE]") {
-              controller.abort();
-              return;
-            }
-            try {
-              onEvent(JSON.parse(data));
-            } catch {
-              // Ignore non-JSON data lines (plain-text chunks, etc.)
-            }
+          if (handleSSELine(line)) {
+            cancelled = true;
+            controller.abort();
+            return;
           }
         }
       }
@@ -132,7 +268,11 @@ export function streamSSE(
   })();
 
   // Return cleanup — callers call this to abort mid-stream.
-  return () => controller.abort();
+  return () => {
+    cancelled = true;
+    tauriUnlisten?.();
+    controller.abort();
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +497,7 @@ export interface UndoResult {
  * History "Undo" button non-functional. Throws on 4xx/5xx.
  */
 export async function undoRecovery(receiptId: string): Promise<UndoResult> {
-  const res = await fetch(`${BASE}/v1/recovery/undo/${receiptId}`, {
+  const res = await fetch(`${API_BASE}/v1/recovery/undo/${receiptId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirm: true }),
@@ -542,7 +682,7 @@ function pickBundleValue(source: string, key: string): string {
 }
 
 export async function getBundleInfo(): Promise<BundleInfo> {
-  const res = await fetch(`${BASE}/office/config.js`, { cache: "no-store" });
+  const res = await fetch(`${API_BASE}/office/config.js`, { cache: "no-store" });
   if (!res.ok) {
     return { sha: "unknown", wsUrl: "unknown", apiBase: "unknown" };
   }

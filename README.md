@@ -102,13 +102,108 @@ Prompts to get a feel for what Pan-Agent can do:
 
 ## Headless Usage
 
-Pan-Agent is also a CLI. Useful for servers, automation, and CI:
+Pan-Agent ships two command-line binaries:
+
+- `pan` - user-facing terminal chat CLI.
+- `pan-agent` - backend/server CLI for the local HTTP API and desktop sidecar.
+
+### Download The CLI
+
+Download the standalone CLI binary from
+[GitHub Releases](https://github.com/Euraika-Labs/pan-agent/releases/latest).
+
+| Platform | File |
+|---|---|
+| **Windows** | `pan-0.6.5-windows-x64.exe` |
+| **macOS ARM** | `pan-0.6.5-macos-arm64` |
+| **Linux x64** | `pan-0.6.5-linux-x64` |
+
+Install examples:
+
+```powershell
+# Windows PowerShell
+mkdir $HOME\.local\bin -Force
+Copy-Item .\pan-0.6.5-windows-x64.exe $HOME\.local\bin\pan.exe
+pan help
+```
+
+```bash
+# macOS / Linux
+mkdir -p ~/.local/bin
+cp ./pan-0.6.5-linux-x64 ~/.local/bin/pan
+chmod +x ~/.local/bin/pan
+pan help
+```
+
+Make sure `~/.local/bin` is on your `PATH`. On Windows you can also put
+`pan.exe` in any directory already on `PATH`.
+
+### `pan` Terminal Chat
+
+`pan` uses the same profile configuration as Pan Desktop. If you already saved
+an API key and model in Settings, the CLI picks it up automatically.
+
+```bash
+# Start interactive terminal chat
+pan
+
+# Same thing, explicit command
+pan chat
+
+# Single prompt mode for scripts
+pan -z "Summarize this repository in three bullets"
+pan chat -z "Write a short haiku"
+
+# Override model/provider/profile for one invocation
+pan -m gpt-4o-mini
+pan --provider regolo
+pan --profile work
+```
+
+Built-in commands:
+
+```bash
+pan help                  # Full command list
+pan chat --help           # Help for chat
+pan model                 # Show active model/provider/base URL
+pan status                # Show CLI/provider/key status
+pan config                # Show active profile config used by the CLI
+pan doctor                # Run basic config checks
+pan version               # Print version metadata
+```
+
+Inside interactive chat:
+
+```text
+/help       show in-chat commands
+/model      show active model
+/profile    show active profile
+/clear      clear the screen and reset chat history
+/exit       quit
+```
+
+You can also create a custom launcher name:
+
+```bash
+pan configure profile hello
+hello
+```
+
+When launched as `pan`, the assistant label is `PAN`. When launched through a
+custom alias like `hello`, the assistant label uses that alias. Running
+`pan configure profile <new-name>` again replaces the previous Pan-created
+alias.
+
+### `pan-agent` Server CLI
+
+Use `pan-agent` when you want the HTTP API server, diagnostics, or the lower
+level backend commands:
 
 ```bash
 # Start the HTTP API server
 pan-agent serve --port 8642
 
-# Interactive terminal chat (no GUI needed)
+# Interactive terminal chat (legacy backend CLI)
 pan-agent chat --model gpt-4o-mini
 
 # Run health checks
@@ -442,7 +537,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 | Metric | Value |
 |---|---|
-| Latest release | [v0.6.0](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
+| Latest release | [v0.6.5](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
 | Platforms | Windows, macOS, Linux |
 | Go test functions | 242 (across 17 packages) |
 | Vitest cases (desktop) | 73 |
@@ -458,7 +553,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 | Documentation | 3 manual documents (Table of Contents · HTTP API Reference · Changelog) + 2 design docs (`docs/design/phase12.md`, `docs/design/phase13.md`) |
 | License | MIT |
 
-Pan-Agent shipped Phase 12 ("Trust-First Desktop Automation") in v0.6.0 on 2026-04-26 — every backend workstream (browser persistence + cost budgets, action journal + recovery, vision + interact tool, durable task runner, macOS permission wizard) now has its desktop counterpart. Phase 13 is in progress: see [`docs/design/phase13.md`](docs/design/phase13.md) for the workstream sequencing and [CHANGELOG.md](CHANGELOG.md) for the version history.
+Pan-Agent shipped Phase 12 ("Trust-First Desktop Automation") in v0.6.0 on 2026-04-26 — every backend workstream (browser persistence + cost budgets, action journal + recovery, vision + interact tool, durable task runner, macOS permission wizard) now has its desktop counterpart. v0.6.5 adds the standalone `pan` terminal CLI and desktop packaging fixes. Phase 13 is in progress: see [`docs/design/phase13.md`](docs/design/phase13.md) for the workstream sequencing and [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ---
 

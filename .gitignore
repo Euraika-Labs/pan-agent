@@ -2,6 +2,7 @@
 /pan-agent
 /pan-agent.exe
 /pan-agent-*.exe
+/pan.exe
 /sha-stamp.exe
 *.exe~
 *.test
@@ -48,3 +49,4 @@ desktop/dist/
 .DS_Store
 Thumbs.db
 build/
+dist/

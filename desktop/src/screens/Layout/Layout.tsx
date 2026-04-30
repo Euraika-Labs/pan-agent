@@ -170,9 +170,14 @@ function Layout(): React.JSX.Element {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleNewChat]);
 
-  // Show nothing while checking first-run status
+  // Keep a branded frame on screen while the gateway/config probe completes.
   if (setupRequired === null) {
-    return <div className="setup-screen" />;
+    return (
+      <div className="startup-loading-screen">
+        <div className="startup-loading-title">PAN AGENT</div>
+        <div className="startup-loading-status">Loading</div>
+      </div>
+    );
   }
 
   // Show onboarding wizard if no provider is configured
@@ -304,6 +309,8 @@ function Layout(): React.JSX.Element {
             display: view === "settings" ? "flex" : "none",
             flex: 1,
             flexDirection: "column",
+            minHeight: 0,
+            height: "100%",
             overflow: "hidden",
           }}
         >

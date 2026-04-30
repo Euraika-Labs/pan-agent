@@ -14,8 +14,16 @@ import (
 // allowedOrigins is the set of origins permitted to call the gateway.
 // Vite dev server and the Tauri app shell are the only expected callers.
 var allowedOrigins = map[string]bool{
-	"http://localhost:5173": true,
-	"tauri://localhost":     true,
+	"http://localhost:5173":   true,
+	"http://127.0.0.1:5173":   true,
+	"tauri://localhost":       true,
+	"http://tauri.localhost":  true,
+	"https://tauri.localhost": true,
+	"http://asset.localhost":  true,
+	"https://asset.localhost": true,
+	"http://ipc.localhost":    true,
+	"https://ipc.localhost":   true,
+	"null":                    true,
 }
 
 // allowedHosts is the set of Host-header values accepted at the top of
@@ -96,6 +104,7 @@ func withMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-ID, X-Pan-Agent-Token")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 
 		// Handle pre-flight immediately.
 		if r.Method == http.MethodOptions {

@@ -54,7 +54,7 @@ export const PROVIDERS = {
       url: "https://console.anthropic.com/settings/keys",
       placeholder: "sk-ant-...",
       configProvider: "anthropic",
-      baseUrl: "",
+      baseUrl: "https://api.anthropic.com/v1",
       needsKey: true,
     },
     {
@@ -66,7 +66,7 @@ export const PROVIDERS = {
       url: "https://platform.openai.com/api-keys",
       placeholder: "sk-...",
       configProvider: "openai",
-      baseUrl: "",
+      baseUrl: "https://api.openai.com/v1",
       needsKey: true,
     },
     {
