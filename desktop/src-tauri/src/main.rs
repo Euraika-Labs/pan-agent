@@ -50,7 +50,11 @@ fn emit_api_stream(
 }
 
 #[tauri::command]
-fn api_fetch(method: String, path: String, body: Option<String>) -> Result<ApiFetchResponse, String> {
+fn api_fetch(
+    method: String,
+    path: String,
+    body: Option<String>,
+) -> Result<ApiFetchResponse, String> {
     if !path.starts_with('/') || path.starts_with("//") || path.contains("://") {
         return Err("invalid local API path".to_string());
     }
@@ -94,10 +98,7 @@ fn api_fetch(method: String, path: String, body: Option<String>) -> Result<ApiFe
         body.to_string()
     };
 
-    Ok(ApiFetchResponse {
-        status,
-        body,
-    })
+    Ok(ApiFetchResponse { status, body })
 }
 
 fn decode_chunked_body(body: &str) -> Result<String, String> {
@@ -243,7 +244,9 @@ fn run_api_stream(
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 fn pop_chunk(pending: &mut Vec<u8>) -> Result<Option<Vec<u8>>, String> {
