@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed terminal CLI `/` handling so typing `/` shows the in-agent command list.
 - Fixed terminal CLI `Ctrl+C` behavior so one press clears input or cancels the
   current reply, while pressing twice exits.
+- Added `Ctrl+J` in the terminal CLI to insert a new line inside the current
+  prompt without sending it.
 - Fixed release/version metadata for v0.6.6 across Go, npm, Cargo, Tauri config,
   README, and changelog.
 

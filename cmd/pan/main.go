@@ -936,7 +936,7 @@ func printShell(cfg cliConfig, updateNotice string) {
 		fmt.Printf(" %skey%s      %sconfigured%s\n", ansiAmber, ansiReset, ansiBlue, ansiReset)
 	}
 	rule()
-	fmt.Printf("%sType a message and press Enter. /help for commands. Ctrl+C clears input/cancels replies; press twice to exit.%s\n", ansiGray, ansiReset)
+	fmt.Printf("%sType a message and press Enter. Ctrl+J adds a line. Ctrl+C clears/cancels; press twice to exit.%s\n", ansiGray, ansiReset)
 }
 
 func banner() string {
@@ -1235,10 +1235,13 @@ func readRawTerminalInput(in *os.File, lines chan<- string, errs chan<- error, i
 				}
 				lines <- paste
 			}
-		case '\r', '\n':
+		case '\r':
 			fmt.Print("\r\n")
 			lines <- line.String()
 			line.Reset()
+		case '\n':
+			line.WriteByte('\n')
+			fmt.Print("\r\n")
 		case 0x08, 0x7f:
 			current := line.String()
 			if len(current) == 0 {
@@ -1425,5 +1428,6 @@ func printInChatCommands() {
 	fmt.Println("  /exit      quit")
 	fmt.Println()
 	fmt.Println("Paste multi-line logs or stack traces directly; fast pasted lines are sent as one message.")
+	fmt.Println("Ctrl+J adds a new line inside the current prompt; Enter sends it.")
 	fmt.Println("Ctrl+C clears input or cancels the current reply; press Ctrl+C twice to exit.")
 }
