@@ -169,6 +169,7 @@ pan model                 # Show active model/provider/base URL
 pan status                # Show CLI/provider/key status
 pan config                # Show active profile config used by the CLI
 pan doctor                # Run basic config checks
+pan update                # Download and install the latest CLI release
 pan version               # Print version metadata
 ```
 

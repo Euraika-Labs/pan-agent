@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added `pan update` to check GitHub Releases for a newer Pan Agent version and
-  print the download link.
+  download/install the matching standalone CLI binary for the current platform.
 - Added a cached startup update notice in the terminal CLI so users see when a
   newer Pan Agent release is available and can run `pan update`.
 

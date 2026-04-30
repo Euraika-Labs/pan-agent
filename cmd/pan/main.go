@@ -10,8 +10,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -481,7 +483,7 @@ positional arguments:
     tools               Tool configuration (available in Pan Desktop)
     sessions            Session history management (available in Pan Desktop)
     logs                View logs (not implemented in CLI yet)
-    update              Check for a newer Pan Agent release
+    update              Download and install the latest Pan Agent CLI release
 
 options:
   -h, --help            show this help message and exit
@@ -504,7 +506,7 @@ Examples:
     pan config                  Show active config
     pan configure profile hello Create or replace the terminal alias 'hello'
     pan doctor                  Run basic checks
-    pan update                  Check for a newer release
+    pan update                  Download and install the latest CLI release
     pan version                 Show version
 
 For more help on a command:
@@ -546,7 +548,7 @@ alias and installs the new one:
 	case "doctor":
 		fmt.Print("usage: pan doctor [--profile PROFILE]\n\nRuns basic configuration checks.\n")
 	case "update":
-		fmt.Print("usage: pan update\n\nChecks GitHub Releases for a newer Pan Agent version and prints the download link.\n")
+		fmt.Print("usage: pan update\n\nDownloads and installs the latest standalone Pan Agent CLI binary for this platform.\n")
 	default:
 		fmt.Printf("No detailed help for %q yet.\n\nRun `pan help` for the command list.\n", command)
 	}
@@ -610,27 +612,51 @@ func runDoctor(cfg cliConfig) error {
 type updateInfo struct {
 	LatestVersion string    `json:"latest_version"`
 	URL           string    `json:"url"`
+	AssetName     string    `json:"asset_name"`
+	AssetURL      string    `json:"asset_url"`
 	CheckedAt     time.Time `json:"checked_at"`
 }
 
 type githubRelease struct {
-	TagName string `json:"tag_name"`
-	HTMLURL string `json:"html_url"`
+	TagName string               `json:"tag_name"`
+	HTMLURL string               `json:"html_url"`
+	Assets  []githubReleaseAsset `json:"assets"`
+}
+
+type githubReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 func runUpdateCheck() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	fmt.Printf("%sUpdating Pan Agent...%s\n\n", ansiAmber, ansiReset)
+	fmt.Println("-> Fetching latest release...")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	info, err := fetchLatestRelease(ctx)
 	if err != nil {
 		return fmt.Errorf("could not check for updates: %w", err)
 	}
-	if isVersionNewer(info.LatestVersion, version.Version) {
-		fmt.Printf("Pan Agent %s is available. Download it here:\n%s\n", info.LatestVersion, info.URL)
-		fmt.Println("After installing, restart Pan Desktop or open a new terminal.")
+	if !isVersionNewer(info.LatestVersion, version.Version) {
+		fmt.Printf("Pan Agent is up to date (%s).\n", version.Version)
 		return nil
 	}
-	fmt.Printf("Pan Agent is up to date (%s).\n", version.Version)
+	if info.AssetURL == "" {
+		return fmt.Errorf("Pan Agent %s is available, but no standalone CLI binary was found for %s/%s\nDownload it here: %s", info.LatestVersion, runtime.GOOS, runtime.GOARCH, info.URL)
+	}
+	fmt.Printf("-> Found Pan Agent %s\n", info.LatestVersion)
+	fmt.Printf("-> Downloading %s...\n", info.AssetName)
+	downloadCtx, cancelDownload := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancelDownload()
+	path, err := downloadUpdateAsset(downloadCtx, info)
+	if err != nil {
+		return err
+	}
+	fmt.Println("-> Installing update...")
+	if err := installDownloadedCLI(path); err != nil {
+		return err
+	}
+	writeUpdateCache(info)
 	return nil
 }
 
@@ -726,7 +752,137 @@ func fetchLatestRelease(ctx context.Context) (updateInfo, error) {
 	if url == "" {
 		url = latestReleaseURL
 	}
-	return updateInfo{LatestVersion: latest, URL: url, CheckedAt: time.Now()}, nil
+	assetName := releaseAssetName(latest)
+	assetURL := ""
+	for _, asset := range rel.Assets {
+		if asset.Name == assetName {
+			assetURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+	return updateInfo{
+		LatestVersion: latest,
+		URL:           url,
+		AssetName:     assetName,
+		AssetURL:      assetURL,
+		CheckedAt:     time.Now(),
+	}, nil
+}
+
+func releaseAssetName(releaseVersion string) string {
+	switch runtime.GOOS {
+	case "windows":
+		if runtime.GOARCH == "amd64" {
+			return fmt.Sprintf("pan-%s-windows-x64.exe", releaseVersion)
+		}
+	case "linux":
+		if runtime.GOARCH == "amd64" {
+			return fmt.Sprintf("pan-%s-linux-x64", releaseVersion)
+		}
+	case "darwin":
+		switch runtime.GOARCH {
+		case "arm64":
+			return fmt.Sprintf("pan-%s-macos-arm64", releaseVersion)
+		case "amd64":
+			return fmt.Sprintf("pan-%s-macos-x64", releaseVersion)
+		}
+	}
+	return ""
+}
+
+func downloadUpdateAsset(ctx context.Context, info updateInfo) (string, error) {
+	if info.AssetURL == "" {
+		return "", fmt.Errorf("missing download URL for %s", info.AssetName)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, info.AssetURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "pan-agent/"+version.Version)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("download failed: GitHub returned %s", resp.Status)
+	}
+
+	current, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve current executable: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(current), ".pan-update-*")
+	if err != nil {
+		return "", fmt.Errorf("create update file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("write update file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close update file: %w", err)
+	}
+	if stat, err := os.Stat(current); err == nil {
+		_ = os.Chmod(tmpPath, stat.Mode().Perm())
+	} else {
+		_ = os.Chmod(tmpPath, 0o755)
+	}
+	cleanup = false
+	return tmpPath, nil
+}
+
+func installDownloadedCLI(downloadPath string) error {
+	current, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve current executable: %w", err)
+	}
+	current, err = filepath.Abs(current)
+	if err != nil {
+		return fmt.Errorf("resolve current executable path: %w", err)
+	}
+	if runtime.GOOS == "windows" {
+		return installDownloadedCLIWindows(downloadPath, current)
+	}
+	if err := os.Rename(downloadPath, current); err != nil {
+		return fmt.Errorf("replace %s: %w", current, err)
+	}
+	fmt.Println("✓ Pan Agent CLI updated. Open a new terminal and run `pan version`.")
+	return nil
+}
+
+func installDownloadedCLIWindows(downloadPath, targetPath string) error {
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("pan-update-%d.ps1", os.Getpid()))
+	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
+Write-Host '-> Waiting for pan.exe to exit...'
+Wait-Process -Id %d -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 300
+Move-Item -LiteralPath %s -Destination %s -Force
+Write-Host '✓ Pan Agent CLI updated. Open a new terminal and run pan version.'
+Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+`, os.Getpid(), powershellQuote(downloadPath), powershellQuote(targetPath))
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		return fmt.Errorf("write Windows update script: %w", err)
+	}
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start Windows update script: %w", err)
+	}
+	fmt.Println("✓ Update downloaded. The installer will replace pan.exe after this command exits.")
+	return nil
+}
+
+func powershellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func isVersionNewer(candidate, current string) bool {
