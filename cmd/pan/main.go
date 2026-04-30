@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/version"
 )
+
+var errInputInterrupted = errors.New("input interrupted")
 
 const (
 	ansiReset  = "\x1b[0m"
@@ -605,7 +608,7 @@ func printShell(cfg cliConfig) {
 		fmt.Printf(" %skey%s      %sconfigured%s\n", ansiAmber, ansiReset, ansiBlue, ansiReset)
 	}
 	rule()
-	fmt.Printf("%sType a message and press Enter. /help for commands. Ctrl+C cancels a reply.%s\n", ansiGray, ansiReset)
+	fmt.Printf("%sType a message and press Enter. /help for commands. Ctrl+C clears input/cancels replies; press twice to exit.%s\n", ansiGray, ansiReset)
 }
 
 func banner() string {
@@ -629,10 +632,22 @@ func chatLoop(cfg cliConfig) error {
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	var history []llm.Message
 	input := newInputReader(os.Stdin)
+	interrupts := &interruptTracker{}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT)
+	defer signal.Stop(sigCh)
 
 	for {
 		fmt.Printf("\n%s›%s ", ansiAmber, ansiReset)
-		block, ok, err := input.ReadBlock()
+		block, ok, err := input.ReadBlock(sigCh)
+		if errors.Is(err, errInputInterrupted) {
+			if interrupts.ShouldExit() {
+				fmt.Println("\nbye")
+				return nil
+			}
+			fmt.Printf("\r\x1b[2K%sinput cleared. Press Ctrl+C again to exit.%s\n", ansiGray, ansiReset)
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -640,6 +655,7 @@ func chatLoop(cfg cliConfig) error {
 			fmt.Println()
 			return nil
 		}
+		interrupts.Reset()
 
 		line := strings.Trim(block, "\r\n")
 		if strings.TrimSpace(line) == "" {
@@ -665,18 +681,37 @@ func chatLoop(cfg cliConfig) error {
 		fmt.Printf("%s%s%s ", ansiAmber, agentLabel(cfg), ansiReset)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT)
+		streamDone := make(chan struct{})
+		streamQuit := make(chan struct{}, 1)
 		go func() {
-			<-sigCh
-			cancel()
+			for {
+				select {
+				case <-sigCh:
+					if interrupts.ShouldExit() {
+						select {
+						case streamQuit <- struct{}{}:
+						default:
+						}
+						cancel()
+						return
+					}
+					fmt.Printf("\n%sreply cancelled. Press Ctrl+C again to exit.%s\n", ansiGray, ansiReset)
+					cancel()
+				case <-streamDone:
+					return
+				}
+			}
 		}()
 
 		start := time.Now()
 		stream, err := client.ChatStream(ctx, history, nil)
 		if err != nil {
 			cancel()
-			signal.Stop(sigCh)
+			close(streamDone)
+			if wasStreamQuit(streamQuit) {
+				fmt.Println("\nbye")
+				return nil
+			}
 			history = history[:len(history)-1]
 			fmt.Printf("%srequest failed:%s %v\n", ansiRed, ansiReset, err)
 			continue
@@ -694,7 +729,12 @@ func chatLoop(cfg cliConfig) error {
 		}
 
 		cancel()
-		signal.Stop(sigCh)
+		close(streamDone)
+		if wasStreamQuit(streamQuit) {
+			fmt.Println("\nbye")
+			return nil
+		}
+		interrupts.Reset()
 		fmt.Printf("%s\n[%s in %.1fs]%s\n", ansiDim, cfg.Model, time.Since(start).Seconds(), ansiReset)
 
 		if assistant.Len() > 0 {
@@ -706,6 +746,38 @@ func chatLoop(cfg cliConfig) error {
 type inputReader struct {
 	lines <-chan string
 	errs  <-chan error
+}
+
+type interruptTracker struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+func (t *interruptTracker) ShouldExit() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	if !t.last.IsZero() && now.Sub(t.last) <= 1500*time.Millisecond {
+		t.last = time.Time{}
+		return true
+	}
+	t.last = now
+	return false
+}
+
+func (t *interruptTracker) Reset() {
+	t.mu.Lock()
+	t.last = time.Time{}
+	t.mu.Unlock()
+}
+
+func wasStreamQuit(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 func newInputReader(in *os.File) *inputReader {
@@ -724,10 +796,16 @@ func newInputReader(in *os.File) *inputReader {
 	return &inputReader{lines: lines, errs: errs}
 }
 
-func (r *inputReader) ReadBlock() (string, bool, error) {
-	first, ok := <-r.lines
-	if !ok {
-		return "", false, <-r.errs
+func (r *inputReader) ReadBlock(interrupts <-chan os.Signal) (string, bool, error) {
+	var first string
+	select {
+	case line, ok := <-r.lines:
+		if !ok {
+			return "", false, <-r.errs
+		}
+		first = line
+	case <-interrupts:
+		return "", true, errInputInterrupted
 	}
 
 	lines := []string{first}
@@ -748,6 +826,8 @@ func (r *inputReader) ReadBlock() (string, bool, error) {
 				}
 			}
 			timer.Reset(90 * time.Millisecond)
+		case <-interrupts:
+			return "", true, errInputInterrupted
 		case <-timer.C:
 			return strings.Join(lines, "\n"), true, nil
 		}
@@ -834,4 +914,5 @@ func printInChatCommands() {
 	fmt.Println("  /exit      quit")
 	fmt.Println()
 	fmt.Println("Paste multi-line logs or stack traces directly; fast pasted lines are sent as one message.")
+	fmt.Println("Ctrl+C clears input or cancels the current reply; press Ctrl+C twice to exit.")
 }
