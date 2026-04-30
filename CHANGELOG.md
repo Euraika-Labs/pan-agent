@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-04-30
+
+### Added
+- Added `pan update` to check GitHub Releases for a newer Pan Agent version and
+  print the download link.
+- Added a cached startup update notice in the terminal CLI so users see when a
+  newer Pan Agent release is available and can run `pan update`.
+
+### Fixed
+- Fixed terminal CLI paste handling so fast multi-line logs and stack traces are
+  sent as one message instead of being split into separate prompts.
+- Fixed terminal CLI `/` handling so typing `/` shows the in-agent command list.
+- Fixed terminal CLI `Ctrl+C` behavior so one press clears input or cancels the
+  current reply, while pressing twice exits.
+- Fixed release/version metadata for v0.6.6 across Go, npm, Cargo, Tauri config,
+  README, and changelog.
+
 ## [0.6.5] - 2026-04-30
 
 ### Added
@@ -675,6 +692,7 @@ Phase 11 — self-healing skill system, full feature-parity with hermes-agent's 
 - Tauri v2 + React 19 desktop app with 14 screens
 - GitLab CI + GitHub Actions build pipeline
 
+[0.6.6]: https://github.com/Euraika-Labs/pan-agent/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/Euraika-Labs/pan-agent/compare/v0.6.0...v0.6.5
 [0.6.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Euraika-Labs/pan-agent/compare/v0.4.4...v0.5.0

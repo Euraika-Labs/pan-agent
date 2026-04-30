@@ -114,23 +114,23 @@ Download the standalone CLI binary from
 
 | Platform | File |
 |---|---|
-| **Windows** | `pan-0.6.5-windows-x64.exe` |
-| **macOS ARM** | `pan-0.6.5-macos-arm64` |
-| **Linux x64** | `pan-0.6.5-linux-x64` |
+| **Windows** | `pan-0.6.6-windows-x64.exe` |
+| **macOS ARM** | `pan-0.6.6-macos-arm64` |
+| **Linux x64** | `pan-0.6.6-linux-x64` |
 
 Install examples:
 
 ```powershell
 # Windows PowerShell
 mkdir $HOME\.local\bin -Force
-Copy-Item .\pan-0.6.5-windows-x64.exe $HOME\.local\bin\pan.exe
+Copy-Item .\pan-0.6.6-windows-x64.exe $HOME\.local\bin\pan.exe
 pan help
 ```
 
 ```bash
 # macOS / Linux
 mkdir -p ~/.local/bin
-cp ./pan-0.6.5-linux-x64 ~/.local/bin/pan
+cp ./pan-0.6.6-linux-x64 ~/.local/bin/pan
 chmod +x ~/.local/bin/pan
 pan help
 ```
@@ -537,7 +537,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 | Metric | Value |
 |---|---|
-| Latest release | [v0.6.5](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
+| Latest release | [v0.6.6](https://github.com/Euraika-Labs/pan-agent/releases/latest) |
 | Platforms | Windows, macOS, Linux |
 | Go test functions | 242 (across 17 packages) |
 | Vitest cases (desktop) | 73 |
@@ -553,7 +553,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 | Documentation | 3 manual documents (Table of Contents · HTTP API Reference · Changelog) + 2 design docs (`docs/design/phase12.md`, `docs/design/phase13.md`) |
 | License | MIT |
 
-Pan-Agent shipped Phase 12 ("Trust-First Desktop Automation") in v0.6.0 on 2026-04-26 — every backend workstream (browser persistence + cost budgets, action journal + recovery, vision + interact tool, durable task runner, macOS permission wizard) now has its desktop counterpart. v0.6.5 adds the standalone `pan` terminal CLI and desktop packaging fixes. Phase 13 is in progress: see [`docs/design/phase13.md`](docs/design/phase13.md) for the workstream sequencing and [CHANGELOG.md](CHANGELOG.md) for the version history.
+Pan-Agent shipped Phase 12 ("Trust-First Desktop Automation") in v0.6.0 on 2026-04-26 — every backend workstream (browser persistence + cost budgets, action journal + recovery, vision + interact tool, durable task runner, macOS permission wizard) now has its desktop counterpart. v0.6.6 adds the standalone `pan` terminal CLI, desktop packaging fixes, safer terminal paste handling, improved `Ctrl+C` behavior, and CLI update notices. Phase 13 is in progress: see [`docs/design/phase13.md`](docs/design/phase13.md) for the workstream sequencing and [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ---
 
