@@ -3,13 +3,16 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +24,12 @@ import (
 )
 
 var errInputInterrupted = errors.New("input interrupted")
+
+const (
+	latestReleaseAPIURL = "https://api.github.com/repos/Euraika-Labs/pan-agent/releases/latest"
+	latestReleaseURL    = "https://github.com/Euraika-Labs/pan-agent/releases/latest"
+	updateCheckTTL      = 6 * time.Hour
+)
 
 const (
 	ansiReset  = "\x1b[0m"
@@ -120,6 +129,8 @@ func run(args []string) error {
 		return nil
 	case "doctor":
 		return runDoctor(cfg)
+	case "update":
+		return runUpdateCheck()
 	case "help":
 		printHelp()
 		return nil
@@ -135,7 +146,7 @@ func run(args []string) error {
 	if !*noClear {
 		clearScreen()
 	}
-	printShell(cfg)
+	printShell(cfg, checkForUpdateNotice())
 	return chatLoop(cfg)
 }
 
@@ -245,7 +256,7 @@ func firstNonEmpty(values ...string) string {
 
 func isPlannedCommand(command string) bool {
 	switch command {
-	case "setup", "gateway", "skills", "tools", "sessions", "logs", "update":
+	case "setup", "gateway", "skills", "tools", "sessions", "logs":
 		return true
 	default:
 		return false
@@ -470,7 +481,7 @@ positional arguments:
     tools               Tool configuration (available in Pan Desktop)
     sessions            Session history management (available in Pan Desktop)
     logs                View logs (not implemented in CLI yet)
-    update              Update Pan Agent (not implemented in CLI yet)
+    update              Check for a newer Pan Agent release
 
 options:
   -h, --help            show this help message and exit
@@ -493,6 +504,7 @@ Examples:
     pan config                  Show active config
     pan configure profile hello Create or replace the terminal alias 'hello'
     pan doctor                  Run basic checks
+    pan update                  Check for a newer release
     pan version                 Show version
 
 For more help on a command:
@@ -533,6 +545,8 @@ alias and installs the new one:
 `)
 	case "doctor":
 		fmt.Print("usage: pan doctor [--profile PROFILE]\n\nRuns basic configuration checks.\n")
+	case "update":
+		fmt.Print("usage: pan update\n\nChecks GitHub Releases for a newer Pan Agent version and prints the download link.\n")
 	default:
 		fmt.Printf("No detailed help for %q yet.\n\nRun `pan help` for the command list.\n", command)
 	}
@@ -593,11 +607,168 @@ func runDoctor(cfg cliConfig) error {
 	return nil
 }
 
-func printShell(cfg cliConfig) {
+type updateInfo struct {
+	LatestVersion string    `json:"latest_version"`
+	URL           string    `json:"url"`
+	CheckedAt     time.Time `json:"checked_at"`
+}
+
+type githubRelease struct {
+	TagName string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+}
+
+func runUpdateCheck() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	info, err := fetchLatestRelease(ctx)
+	if err != nil {
+		return fmt.Errorf("could not check for updates: %w", err)
+	}
+	if isVersionNewer(info.LatestVersion, version.Version) {
+		fmt.Printf("Pan Agent %s is available. Download it here:\n%s\n", info.LatestVersion, info.URL)
+		fmt.Println("After installing, restart Pan Desktop or open a new terminal.")
+		return nil
+	}
+	fmt.Printf("Pan Agent is up to date (%s).\n", version.Version)
+	return nil
+}
+
+func checkForUpdateNotice() string {
+	info, err := cachedLatestRelease()
+	if err != nil || !isVersionNewer(info.LatestVersion, version.Version) {
+		return ""
+	}
+	return fmt.Sprintf("Pan Agent %s is available. Run `pan update` to update Pan Desktop and the terminal CLI.", info.LatestVersion)
+}
+
+func cachedLatestRelease() (updateInfo, error) {
+	if info, ok := readUpdateCache(); ok {
+		return info, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	defer cancel()
+	info, err := fetchLatestRelease(ctx)
+	if err != nil {
+		return updateInfo{}, err
+	}
+	writeUpdateCache(info)
+	return info, nil
+}
+
+func readUpdateCache() (updateInfo, bool) {
+	path, err := updateCachePath()
+	if err != nil {
+		return updateInfo{}, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return updateInfo{}, false
+	}
+	var info updateInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return updateInfo{}, false
+	}
+	if info.LatestVersion == "" || time.Since(info.CheckedAt) > updateCheckTTL {
+		return updateInfo{}, false
+	}
+	return info, true
+}
+
+func writeUpdateCache(info updateInfo) {
+	path, err := updateCachePath()
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o644)
+}
+
+func updateCachePath() (string, error) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "pan-agent", "update-check.json"), nil
+}
+
+func fetchLatestRelease(ctx context.Context) (updateInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestReleaseAPIURL, nil)
+	if err != nil {
+		return updateInfo{}, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "pan-agent/"+version.Version)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return updateInfo{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return updateInfo{}, fmt.Errorf("GitHub returned %s", resp.Status)
+	}
+	var rel githubRelease
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 256*1024)).Decode(&rel); err != nil {
+		return updateInfo{}, err
+	}
+	latest := normalizeVersion(rel.TagName)
+	if latest == "" {
+		return updateInfo{}, fmt.Errorf("latest release did not include a version tag")
+	}
+	url := rel.HTMLURL
+	if url == "" {
+		url = latestReleaseURL
+	}
+	return updateInfo{LatestVersion: latest, URL: url, CheckedAt: time.Now()}, nil
+}
+
+func isVersionNewer(candidate, current string) bool {
+	c := parseVersion(candidate)
+	v := parseVersion(current)
+	for i := 0; i < len(c) && i < len(v); i++ {
+		if c[i] > v[i] {
+			return true
+		}
+		if c[i] < v[i] {
+			return false
+		}
+	}
+	return false
+}
+
+func parseVersion(raw string) [3]int {
+	var out [3]int
+	parts := strings.Split(normalizeVersion(raw), ".")
+	for i := 0; i < len(parts) && i < len(out); i++ {
+		part := parts[i]
+		if idx := strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' }); idx >= 0 {
+			part = part[:idx]
+		}
+		n, _ := strconv.Atoi(part)
+		out[i] = n
+	}
+	return out
+}
+
+func normalizeVersion(raw string) string {
+	return strings.TrimPrefix(strings.TrimSpace(strings.ToLower(raw)), "v")
+}
+
+func printShell(cfg cliConfig, updateNotice string) {
 	fmt.Printf("%s%s\n", ansiAmber, banner())
 	fmt.Printf("%s", ansiReset)
 	rule()
 	fmt.Printf(" %s%s AGENT%s %s%s%s\n", ansiBold+ansiAmber, strings.ToUpper(agentLabel(cfg)), ansiReset, ansiGray, version.Version, ansiReset)
+	if updateNotice != "" {
+		fmt.Printf(" %supdate%s   %s\n", ansiAmber, ansiReset, updateNotice)
+	}
 	fmt.Printf(" %sprofile%s  %s\n", ansiAmber, ansiReset, cfg.Profile)
 	fmt.Printf(" %smodel%s    %s\n", ansiAmber, ansiReset, cfg.Model)
 	fmt.Printf(" %sprovider%s %s\n", ansiAmber, ansiReset, cfg.Provider)
@@ -888,7 +1059,7 @@ func handleCommand(line string, cfg cliConfig, history *[]llm.Message) (handled 
 	case "/clear":
 		*history = nil
 		clearScreen()
-		printShell(cfg)
+		printShell(cfg, "")
 		return true, false
 	case "/", "/help":
 		printInChatCommands()
