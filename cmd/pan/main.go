@@ -20,8 +20,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/euraika-labs/pan-agent/internal/approval"
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/llm"
+	"github.com/euraika-labs/pan-agent/internal/tools"
 	"github.com/euraika-labs/pan-agent/internal/version"
 	"golang.org/x/term"
 )
@@ -52,6 +54,11 @@ type cliConfig struct {
 	BaseURL  string
 	APIKey   string
 	Launch   string
+}
+
+type chatState struct {
+	History []llm.Message
+	Yolo    bool
 }
 
 func main() {
@@ -958,7 +965,7 @@ func clearScreen() {
 
 func chatLoop(cfg cliConfig) error {
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
-	var history []llm.Message
+	state := &chatState{}
 	fmt.Print("\x1b[?2004h")
 	defer fmt.Print("\x1b[?2004l")
 	input, err := newInputReader(os.Stdin)
@@ -998,20 +1005,20 @@ func chatLoop(cfg cliConfig) error {
 		isPastedBlock := strings.Contains(line, "\n")
 		if !isPastedBlock {
 			line = strings.TrimSpace(line)
-			if handled, quit := handleCommand(line, cfg, &history); handled {
+			if handled, quit := handleCommand(line, cfg, state); handled {
 				if quit {
 					return nil
 				}
 				continue
 			}
-		} else if handled, quit := handleCommandLines(line, cfg, &history); handled {
+		} else if handled, quit := handleCommandLines(line, cfg, state); handled {
 			if quit {
 				return nil
 			}
 			continue
 		}
 
-		history = append(history, llm.Message{Role: "user", Content: line})
+		state.History = append(state.History, llm.Message{Role: "user", Content: line})
 		fmt.Printf("%s%s%s ", ansiAmber, agentLabel(cfg), ansiReset)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1049,7 +1056,7 @@ func chatLoop(cfg cliConfig) error {
 		}()
 
 		start := time.Now()
-		stream, err := client.ChatStream(ctx, history, nil)
+		err = runToolAwareTurn(ctx, client, cfg, state)
 		if err != nil {
 			cancel()
 			close(streamDone)
@@ -1057,20 +1064,11 @@ func chatLoop(cfg cliConfig) error {
 				fmt.Println("\nbye")
 				return nil
 			}
-			history = history[:len(history)-1]
+			if len(state.History) > 0 && state.History[len(state.History)-1].Role == "user" {
+				state.History = state.History[:len(state.History)-1]
+			}
 			fmt.Printf("%srequest failed:%s %v\n", ansiRed, ansiReset, err)
 			continue
-		}
-
-		var assistant strings.Builder
-		for ev := range stream {
-			switch ev.Type {
-			case "chunk":
-				fmt.Print(ev.Content)
-				assistant.WriteString(ev.Content)
-			case "error":
-				fmt.Printf("\n%smodel error:%s %s\n", ansiRed, ansiReset, ev.Error)
-			}
 		}
 
 		cancel()
@@ -1082,9 +1080,6 @@ func chatLoop(cfg cliConfig) error {
 		interrupts.Reset()
 		fmt.Printf("%s\n[%s in %.1fs]%s\n", ansiDim, cfg.Model, time.Since(start).Seconds(), ansiReset)
 
-		if assistant.Len() > 0 {
-			history = append(history, llm.Message{Role: "assistant", Content: assistant.String()})
-		}
 	}
 }
 
@@ -1093,6 +1088,123 @@ type inputReader struct {
 	errs       <-chan error
 	interrupts <-chan struct{}
 	restore    func() error
+}
+
+func runToolAwareTurn(ctx context.Context, client *llm.Client, cfg cliConfig, state *chatState) error {
+	const maxToolRounds = 8
+	for round := 0; round < maxToolRounds; round++ {
+		messages := withCLISystemPrompt(cfg, state.History)
+		stream, err := client.ChatStream(ctx, messages, cliToolDefs())
+		if err != nil {
+			return err
+		}
+
+		var assistant strings.Builder
+		var toolCalls []llm.ToolCall
+		for ev := range stream {
+			switch ev.Type {
+			case "chunk":
+				fmt.Print(ev.Content)
+				assistant.WriteString(ev.Content)
+			case "tool_call":
+				if ev.ToolCall != nil {
+					toolCalls = append(toolCalls, *ev.ToolCall)
+				}
+			case "error":
+				fmt.Printf("\n%smodel error:%s %s\n", ansiRed, ansiReset, ev.Error)
+			}
+		}
+
+		state.History = append(state.History, llm.Message{
+			Role:      "assistant",
+			Content:   assistant.String(),
+			ToolCalls: toolCalls,
+		})
+		if len(toolCalls) == 0 {
+			return nil
+		}
+
+		for _, tc := range toolCalls {
+			result := executeCLITool(ctx, tc, state)
+			state.History = append(state.History, llm.Message{
+				Role:       "tool",
+				Name:       tc.Function.Name,
+				ToolCallID: tc.ID,
+				Content:    result,
+			})
+		}
+	}
+	return fmt.Errorf("tool loop reached %d rounds without a final answer", maxToolRounds)
+}
+
+func withCLISystemPrompt(cfg cliConfig, history []llm.Message) []llm.Message {
+	cwd, _ := os.Getwd()
+	system := fmt.Sprintf(`You are Pan Agent running in the terminal as %s.
+You can inspect and edit local files and run commands through tools.
+Use filesystem for reading/writing files, terminal for project commands, and code_execution for isolated snippets.
+Current working directory: %s
+When modifying code, keep edits scoped, then run the relevant checks if practical.
+Explain tool results briefly to the user.`, agentLabel(cfg), cwd)
+	msgs := make([]llm.Message, 0, len(history)+1)
+	msgs = append(msgs, llm.Message{Role: "system", Content: system})
+	msgs = append(msgs, history...)
+	return msgs
+}
+
+func cliToolDefs() []llm.ToolDef {
+	names := []string{"filesystem", "terminal", "code_execution"}
+	defs := make([]llm.ToolDef, 0, len(names))
+	for _, name := range names {
+		tool, ok := tools.Get(name)
+		if !ok {
+			continue
+		}
+		defs = append(defs, llm.ToolDef{
+			Type: "function",
+			Function: llm.ToolFnDef{
+				Name:        tool.Name(),
+				Description: tool.Description(),
+				Parameters:  tool.Parameters(),
+			},
+		})
+	}
+	return defs
+}
+
+func executeCLITool(ctx context.Context, tc llm.ToolCall, state *chatState) string {
+	tool, ok := tools.Get(tc.Function.Name)
+	if !ok {
+		return fmt.Sprintf(`{"error":"unknown tool: %s"}`, tc.Function.Name)
+	}
+	if !state.Yolo {
+		chk := approval.Classify(tc.Function.Name, tc.Function.Arguments)
+		if chk.Level != approval.Safe {
+			return fmt.Sprintf(`{"error":"tool call requires permission. Run /yolo to allow terminal, code, and file tools without prompts.","denied":true,"tool":%q,"reason":%q}`, tc.Function.Name, chk.Description)
+		}
+	}
+	fmt.Printf("\n%s→ %s%s %s\n", ansiGray, tc.Function.Name, ansiReset, truncateForDisplay(tc.Function.Arguments, 220))
+	result, err := tool.Execute(ctx, json.RawMessage(tc.Function.Arguments))
+	if err != nil {
+		return fmt.Sprintf(`{"error":"tool execution failed: %s"}`, err.Error())
+	}
+	if result.Error != "" {
+		return fmt.Sprintf(`{"error":%q,"output":%q}`, result.Error, result.Output)
+	}
+	if result.Output == "" {
+		return `{"output":""}`
+	}
+	return result.Output
+}
+
+func truncateForDisplay(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	if max < 4 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 type interruptTracker struct {
@@ -1348,7 +1460,7 @@ func (r *inputReader) ReadBlock(interrupts <-chan os.Signal) (string, bool, erro
 	}
 }
 
-func handleCommandLines(block string, cfg cliConfig, history *[]llm.Message) (handled bool, quit bool) {
+func handleCommandLines(block string, cfg cliConfig, state *chatState) (handled bool, quit bool) {
 	lines := strings.Split(block, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -1364,7 +1476,7 @@ func handleCommandLines(block string, cfg cliConfig, history *[]llm.Message) (ha
 		if line == "" {
 			continue
 		}
-		if handled, quit := handleCommand(line, cfg, history); handled {
+		if handled, quit := handleCommand(line, cfg, state); handled {
 			if quit {
 				return true, true
 			}
@@ -1394,15 +1506,23 @@ func runOneshot(cfg cliConfig, prompt string) error {
 	return nil
 }
 
-func handleCommand(line string, cfg cliConfig, history *[]llm.Message) (handled bool, quit bool) {
+func handleCommand(line string, cfg cliConfig, state *chatState) (handled bool, quit bool) {
 	switch strings.ToLower(line) {
 	case "/exit", "/quit", "exit", "quit":
 		fmt.Println("bye")
 		return true, true
 	case "/clear":
-		*history = nil
+		state.History = nil
 		clearScreen()
 		printShell(cfg, "")
+		return true, false
+	case "/yolo":
+		state.Yolo = !state.Yolo
+		if state.Yolo {
+			fmt.Printf("%sYOLO mode enabled.%s Tool calls can run commands and edit files without asking.\n", ansiAmber, ansiReset)
+		} else {
+			fmt.Printf("%sYOLO mode disabled.%s Tool calls are blocked until you run /yolo again.\n", ansiAmber, ansiReset)
+		}
 		return true, false
 	case "/", "/help":
 		printInChatCommands()
@@ -1424,6 +1544,7 @@ func printInChatCommands() {
 	fmt.Println("  /help      show commands")
 	fmt.Println("  /model     show active model")
 	fmt.Println("  /profile   show active profile")
+	fmt.Println("  /yolo      toggle command/file tool permissions")
 	fmt.Println("  /clear     clear screen and reset chat history")
 	fmt.Println("  /exit      quit")
 	fmt.Println()

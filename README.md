@@ -179,9 +179,14 @@ Inside interactive chat:
 /help       show in-chat commands
 /model      show active model
 /profile    show active profile
+/yolo       toggle command/file tool permissions
 /clear      clear the screen and reset chat history
 /exit       quit
 ```
+
+The terminal CLI can use local tools to inspect/edit files and run project
+commands. By default, command/file/code tools are blocked; run `/yolo` inside
+chat to allow those tool calls without asking.
 
 You can also create a custom launcher name:
 

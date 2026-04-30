@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current reply, while pressing twice exits.
 - Added `Ctrl+J` in the terminal CLI to insert a new line inside the current
   prompt without sending it.
+- Added terminal CLI tool-calling for local file operations, shell commands,
+  and isolated code execution, with `/yolo` to enable those permissions for
+  the current chat session.
 - Fixed release/version metadata for v0.6.6 across Go, npm, Cargo, Tauri config,
   README, and changelog.
 
