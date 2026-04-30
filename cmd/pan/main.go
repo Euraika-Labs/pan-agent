@@ -628,21 +628,33 @@ func clearScreen() {
 func chatLoop(cfg cliConfig) error {
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	var history []llm.Message
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 4*1024), 1024*1024)
+	input := newInputReader(os.Stdin)
 
 	for {
 		fmt.Printf("\n%s›%s ", ansiAmber, ansiReset)
-		if !scanner.Scan() {
+		block, ok, err := input.ReadBlock()
+		if err != nil {
+			return err
+		}
+		if !ok {
 			fmt.Println()
-			return scanner.Err()
+			return nil
 		}
 
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+		line := strings.Trim(block, "\r\n")
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if handled, quit := handleCommand(line, cfg, &history); handled {
+		isPastedBlock := strings.Contains(line, "\n")
+		if !isPastedBlock {
+			line = strings.TrimSpace(line)
+			if handled, quit := handleCommand(line, cfg, &history); handled {
+				if quit {
+					return nil
+				}
+				continue
+			}
+		} else if handled, quit := handleCommandLines(line, cfg, &history); handled {
 			if quit {
 				return nil
 			}
@@ -691,6 +703,84 @@ func chatLoop(cfg cliConfig) error {
 	}
 }
 
+type inputReader struct {
+	lines <-chan string
+	errs  <-chan error
+}
+
+func newInputReader(in *os.File) *inputReader {
+	lines := make(chan string, 256)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		defer close(errs)
+		scanner := bufio.NewScanner(in)
+		scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		errs <- scanner.Err()
+	}()
+	return &inputReader{lines: lines, errs: errs}
+}
+
+func (r *inputReader) ReadBlock() (string, bool, error) {
+	first, ok := <-r.lines
+	if !ok {
+		return "", false, <-r.errs
+	}
+
+	lines := []string{first}
+	timer := time.NewTimer(90 * time.Millisecond)
+	defer timer.Stop()
+
+	for {
+		select {
+		case line, ok := <-r.lines:
+			if !ok {
+				return strings.Join(lines, "\n"), true, <-r.errs
+			}
+			lines = append(lines, line)
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(90 * time.Millisecond)
+		case <-timer.C:
+			return strings.Join(lines, "\n"), true, nil
+		}
+	}
+}
+
+func handleCommandLines(block string, cfg cliConfig, history *[]llm.Message) (handled bool, quit bool) {
+	lines := strings.Split(block, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "/") && line != "exit" && line != "quit" {
+			return false, false
+		}
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if handled, quit := handleCommand(line, cfg, history); handled {
+			if quit {
+				return true, true
+			}
+			continue
+		}
+		return false, false
+	}
+	return true, false
+}
+
 func runOneshot(cfg cliConfig, prompt string) error {
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	ctx := context.Background()
@@ -720,13 +810,8 @@ func handleCommand(line string, cfg cliConfig, history *[]llm.Message) (handled 
 		clearScreen()
 		printShell(cfg)
 		return true, false
-	case "/help":
-		fmt.Printf("%sCommands%s\n", ansiAmber, ansiReset)
-		fmt.Println("  /help     show commands")
-		fmt.Println("  /model    show active model")
-		fmt.Println("  /profile  show active profile")
-		fmt.Println("  /clear    clear screen and reset chat history")
-		fmt.Println("  /exit     quit")
+	case "/", "/help":
+		printInChatCommands()
 		return true, false
 	case "/model":
 		fmt.Printf("%s%s%s via %s%s%s\n", ansiAmber, cfg.Model, ansiReset, ansiGray, cfg.BaseURL, ansiReset)
@@ -737,4 +822,16 @@ func handleCommand(line string, cfg cliConfig, history *[]llm.Message) (handled 
 	default:
 		return false, false
 	}
+}
+
+func printInChatCommands() {
+	fmt.Printf("%sCommands%s\n", ansiAmber, ansiReset)
+	fmt.Println("  /          show commands")
+	fmt.Println("  /help      show commands")
+	fmt.Println("  /model     show active model")
+	fmt.Println("  /profile   show active profile")
+	fmt.Println("  /clear     clear screen and reset chat history")
+	fmt.Println("  /exit      quit")
+	fmt.Println()
+	fmt.Println("Paste multi-line logs or stack traces directly; fast pasted lines are sent as one message.")
 }
