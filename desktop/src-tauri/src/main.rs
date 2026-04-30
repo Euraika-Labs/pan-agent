@@ -61,7 +61,7 @@ fn api_fetch(
 
     let method = method.trim().to_ascii_uppercase();
     let body = body.unwrap_or_default();
-    let content_length = body.as_bytes().len();
+    let content_length = body.len();
     let request = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:8642\r\nContent-Type: application/json\r\nAccept: application/json\r\nConnection: close\r\nContent-Length: {content_length}\r\n\r\n{body}"
     );
@@ -154,7 +154,7 @@ fn run_api_stream(
     body: &str,
     stream_id: &str,
 ) -> Result<(), String> {
-    let content_length = body.as_bytes().len();
+    let content_length = body.len();
     let request = format!(
         "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:8642\r\nContent-Type: application/json\r\nAccept: text/event-stream\r\nConnection: close\r\nContent-Length: {content_length}\r\n\r\n{body}"
     );

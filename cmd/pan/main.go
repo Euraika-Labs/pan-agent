@@ -643,7 +643,7 @@ func runUpdateCheck() error {
 		return nil
 	}
 	if info.AssetURL == "" {
-		return fmt.Errorf("Pan Agent %s is available, but no standalone CLI binary was found for %s/%s\nDownload it here: %s", info.LatestVersion, runtime.GOOS, runtime.GOARCH, info.URL)
+		return fmt.Errorf("pan agent %s is available, but no standalone CLI binary was found for %s/%s\ndownload it here: %s", info.LatestVersion, runtime.GOOS, runtime.GOARCH, info.URL)
 	}
 	fmt.Printf("-> Found Pan Agent %s\n", info.LatestVersion)
 	fmt.Printf("-> Downloading %s...\n", info.AssetName)
