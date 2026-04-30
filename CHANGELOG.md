@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed interactive terminal paste handling with bracketed paste support so long
   copied text with many spaces/newlines is captured as one prompt before the
   agent starts replying.
+- Changed terminal paste behavior so pasted text is inserted into the prompt
+  buffer and only sends when the user presses Enter.
 - Fixed terminal CLI `/` handling so typing `/` shows the in-agent command list.
 - Fixed terminal CLI `Ctrl+C` behavior so one press clears input or cancels the
   current reply, while pressing twice exits.

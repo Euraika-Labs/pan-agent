@@ -1339,13 +1339,9 @@ func readRawTerminalInput(in *os.File, lines chan<- string, errs chan<- error, i
 					}
 					return
 				}
-				line.Reset()
 				paste = normalizePastedText(paste)
-				fmt.Print(paste)
-				if !strings.HasSuffix(paste, "\n") {
-					fmt.Print("\r\n")
-				}
-				lines <- paste
+				line.WriteString(paste)
+				printPastedText(paste)
 			}
 		case '\r':
 			fmt.Print("\r\n")
@@ -1416,6 +1412,16 @@ func normalizePastedText(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	return strings.Trim(text, "\n")
+}
+
+func printPastedText(text string) {
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\n' {
+			fmt.Print("\r\n")
+			continue
+		}
+		_, _ = os.Stdout.Write([]byte{text[i]})
+	}
 }
 
 func (r *inputReader) ReadBlock(interrupts <-chan os.Signal) (string, bool, error) {
@@ -1548,7 +1554,7 @@ func printInChatCommands() {
 	fmt.Println("  /clear     clear screen and reset chat history")
 	fmt.Println("  /exit      quit")
 	fmt.Println()
-	fmt.Println("Paste multi-line logs or stack traces directly; fast pasted lines are sent as one message.")
+	fmt.Println("Paste multi-line logs or stack traces directly; pasted text is inserted, not sent.")
 	fmt.Println("Ctrl+J adds a new line inside the current prompt; Enter sends it.")
 	fmt.Println("Ctrl+C clears input or cancels the current reply; press Ctrl+C twice to exit.")
 }
