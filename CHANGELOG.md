@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed terminal CLI paste handling so fast multi-line logs and stack traces are
   sent as one message instead of being split into separate prompts.
+- Fixed interactive terminal paste handling with bracketed paste support so long
+  copied text with many spaces/newlines is captured as one prompt before the
+  agent starts replying.
 - Fixed terminal CLI `/` handling so typing `/` shows the in-agent command list.
 - Fixed terminal CLI `Ctrl+C` behavior so one press clears input or cancels the
   current reply, while pressing twice exits.

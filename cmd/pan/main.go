@@ -23,6 +23,7 @@ import (
 	"github.com/euraika-labs/pan-agent/internal/config"
 	"github.com/euraika-labs/pan-agent/internal/llm"
 	"github.com/euraika-labs/pan-agent/internal/version"
+	"golang.org/x/term"
 )
 
 var errInputInterrupted = errors.New("input interrupted")
@@ -958,7 +959,13 @@ func clearScreen() {
 func chatLoop(cfg cliConfig) error {
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	var history []llm.Message
-	input := newInputReader(os.Stdin)
+	fmt.Print("\x1b[?2004h")
+	defer fmt.Print("\x1b[?2004l")
+	input, err := newInputReader(os.Stdin)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
 	interrupts := &interruptTracker{}
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT)
@@ -1013,6 +1020,17 @@ func chatLoop(cfg cliConfig) error {
 		go func() {
 			for {
 				select {
+				case <-input.Interrupts():
+					if interrupts.ShouldExit() {
+						select {
+						case streamQuit <- struct{}{}:
+						default:
+						}
+						cancel()
+						return
+					}
+					fmt.Printf("\n%sreply cancelled. Press Ctrl+C again to exit.%s\n", ansiGray, ansiReset)
+					cancel()
 				case <-sigCh:
 					if interrupts.ShouldExit() {
 						select {
@@ -1071,8 +1089,10 @@ func chatLoop(cfg cliConfig) error {
 }
 
 type inputReader struct {
-	lines <-chan string
-	errs  <-chan error
+	lines      <-chan string
+	errs       <-chan error
+	interrupts <-chan struct{}
+	restore    func() error
 }
 
 type interruptTracker struct {
@@ -1107,9 +1127,29 @@ func wasStreamQuit(ch <-chan struct{}) bool {
 	}
 }
 
-func newInputReader(in *os.File) *inputReader {
+func newInputReader(in *os.File) (*inputReader, error) {
 	lines := make(chan string, 256)
 	errs := make(chan error, 1)
+	interrupts := make(chan struct{}, 4)
+	restore := func() error { return nil }
+
+	if term.IsTerminal(int(in.Fd())) {
+		state, err := term.MakeRaw(int(in.Fd()))
+		if err != nil {
+			return nil, fmt.Errorf("enable raw terminal input: %w", err)
+		}
+		restore = func() error {
+			return term.Restore(int(in.Fd()), state)
+		}
+		go readRawTerminalInput(in, lines, errs, interrupts)
+		return &inputReader{
+			lines:      lines,
+			errs:       errs,
+			interrupts: interrupts,
+			restore:    restore,
+		}, nil
+	}
+
 	go func() {
 		defer close(lines)
 		defer close(errs)
@@ -1120,7 +1160,147 @@ func newInputReader(in *os.File) *inputReader {
 		}
 		errs <- scanner.Err()
 	}()
-	return &inputReader{lines: lines, errs: errs}
+	return &inputReader{
+		lines:      lines,
+		errs:       errs,
+		interrupts: interrupts,
+		restore:    restore,
+	}, nil
+}
+
+func (r *inputReader) Close() {
+	if r.restore != nil {
+		_ = r.restore()
+	}
+}
+
+func (r *inputReader) Interrupts() <-chan struct{} {
+	return r.interrupts
+}
+
+func readRawTerminalInput(in *os.File, lines chan<- string, errs chan<- error, interrupts chan<- struct{}) {
+	defer close(lines)
+	defer close(errs)
+	defer close(interrupts)
+
+	var line strings.Builder
+	buf := make([]byte, 1)
+	for {
+		n, err := in.Read(buf)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				errs <- nil
+			} else {
+				errs <- err
+			}
+			return
+		}
+		if n == 0 {
+			continue
+		}
+
+		switch b := buf[0]; b {
+		case 0x03:
+			line.Reset()
+			fmt.Print("\r\x1b[2K")
+			select {
+			case interrupts <- struct{}{}:
+			default:
+			}
+		case 0x1b:
+			seq, err := readEscapeSequence(in)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					errs <- nil
+				} else {
+					errs <- err
+				}
+				return
+			}
+			if seq == "[200~" {
+				paste, err := readBracketedPaste(in)
+				if err != nil {
+					if errors.Is(err, io.EOF) {
+						errs <- nil
+					} else {
+						errs <- err
+					}
+					return
+				}
+				line.Reset()
+				paste = normalizePastedText(paste)
+				fmt.Print(paste)
+				if !strings.HasSuffix(paste, "\n") {
+					fmt.Print("\r\n")
+				}
+				lines <- paste
+			}
+		case '\r', '\n':
+			fmt.Print("\r\n")
+			lines <- line.String()
+			line.Reset()
+		case 0x08, 0x7f:
+			current := line.String()
+			if len(current) == 0 {
+				continue
+			}
+			current = current[:len(current)-1]
+			line.Reset()
+			line.WriteString(current)
+			fmt.Print("\b \b")
+		default:
+			if b < 0x20 {
+				continue
+			}
+			line.WriteByte(b)
+			_, _ = os.Stdout.Write(buf[:1])
+		}
+	}
+}
+
+func readEscapeSequence(in *os.File) (string, error) {
+	var seq strings.Builder
+	buf := make([]byte, 1)
+	for seq.Len() < 16 {
+		n, err := in.Read(buf)
+		if err != nil {
+			return "", err
+		}
+		if n == 0 {
+			continue
+		}
+		seq.WriteByte(buf[0])
+		if (buf[0] >= 'A' && buf[0] <= 'Z') || (buf[0] >= 'a' && buf[0] <= 'z') || buf[0] == '~' {
+			break
+		}
+	}
+	return seq.String(), nil
+}
+
+func readBracketedPaste(in *os.File) (string, error) {
+	const end = "\x1b[201~"
+	var paste strings.Builder
+	buf := make([]byte, 1)
+	for {
+		n, err := in.Read(buf)
+		if err != nil {
+			return "", err
+		}
+		if n == 0 {
+			continue
+		}
+		paste.WriteByte(buf[0])
+		current := paste.String()
+		if strings.HasSuffix(current, end) {
+			return strings.TrimSuffix(current, end), nil
+		}
+	}
+}
+
+func normalizePastedText(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return strings.Trim(text, "\n")
 }
 
 func (r *inputReader) ReadBlock(interrupts <-chan os.Signal) (string, bool, error) {
@@ -1131,6 +1311,8 @@ func (r *inputReader) ReadBlock(interrupts <-chan os.Signal) (string, bool, erro
 			return "", false, <-r.errs
 		}
 		first = line
+	case <-r.interrupts:
+		return "", true, errInputInterrupted
 	case <-interrupts:
 		return "", true, errInputInterrupted
 	}
@@ -1153,6 +1335,8 @@ func (r *inputReader) ReadBlock(interrupts <-chan os.Signal) (string, bool, erro
 				}
 			}
 			timer.Reset(90 * time.Millisecond)
+		case <-r.interrupts:
+			return "", true, errInputInterrupted
 		case <-interrupts:
 			return "", true, errInputInterrupted
 		case <-timer.C:
