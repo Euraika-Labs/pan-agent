@@ -10,7 +10,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jezek/xgb v1.3.1
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
-	github.com/slack-go/slack v0.23.0
+	github.com/slack-go/slack v0.23.1
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.43.0
 	golang.org/x/term v0.42.0
