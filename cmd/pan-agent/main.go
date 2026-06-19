@@ -451,6 +451,14 @@ func doctorHealthChecks(jsonOut bool) error {
 		add("CSP violations log", true, "(empty or absent)")
 	}
 
+	// 8. Tool configuration probes (Phase 13 WS#13.D). Reports whether
+	// each optional read-only tool's env vars are populated. None of
+	// these are fatal — tools without their env vars simply 503/error
+	// at runtime, but it's nice for the doctor to surface "you have
+	// JIRA_HOST set, but JIRA_API_TOKEN is missing" so the operator
+	// knows what to fix BEFORE they try to use the tool.
+	checks = append(checks, toolConfigChecks()...)
+
 	if jsonOut {
 		out := map[string]any{
 			"checks": checks,
