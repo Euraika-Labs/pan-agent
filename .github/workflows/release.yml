@@ -34,7 +34,7 @@ jobs:
             go-binary: pan-agent-x86_64-unknown-linux-gnu
             cli-binary: pan-0.0.0-linux-x64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -200,7 +200,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Extract version from tag
         id: version
