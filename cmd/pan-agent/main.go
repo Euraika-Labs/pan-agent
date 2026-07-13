@@ -7,6 +7,8 @@
 //	pan-agent version                                   Print version info
 //	pan-agent doctor                                    Check system health
 //	pan-agent skill  verify <bundle-path>               Verify a marketplace bundle
+//	pan-agent secret patterns                           List redaction recognizers
+//	pan-agent secret scan [< stdin]                     Tag the input with redaction tokens
 //
 // Default (no subcommand): serve
 package main
@@ -70,8 +72,10 @@ func run(args []string) error {
 		return cmdMigrateOffice(args)
 	case "skill":
 		return cmdSkill(args)
+	case "secret":
+		return cmdSecret(args)
 	default:
-		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor|migrate-office|skill>", sub)
+		return fmt.Errorf("unknown subcommand %q\n\nUsage: pan-agent <serve|chat|version|doctor|migrate-office|skill|secret>", sub)
 	}
 }
 
